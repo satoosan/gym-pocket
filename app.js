@@ -1778,7 +1778,7 @@ function renderProgress(app){
       <div class="stack">
         <button class="secondary" id="exportData">Exportar backup completo (.json)</button>
         <button class="secondary" id="importData">Importar backup (.json)</button>
-        <input id="importFile" type="file" accept="application/json,.json" hidden>
+        <input id="importFile" type="file" accept="application/json,application/x-gym-pocket,.json,.gympocket" hidden>
       </div>
     </section>
 
@@ -1944,6 +1944,8 @@ function roundRect(ctx,x,y,w,h,r){
 }
 function buildBackup(){
   return {
+    format: "gym-pocket-backup",
+    fileFormatVersion: 1,
     app: "Gym Pocket",
     backupVersion: 2,
     exportedAt: new Date().toISOString(),
@@ -1971,7 +1973,7 @@ function exportData(){
   const backup=buildBackup();
 
   openModal("Exportar backup", `
-    <p class="muted">Escolha um nome para identificar este backup.</p>
+    <p class="muted">Escolha o nome e o formato do seu backup.</p>
 
     <div class="form-group">
       <label>Nome do arquivo</label>
@@ -1980,7 +1982,24 @@ function exportData(){
         value="Treino"
         placeholder="Ex.: Treino do Guilherme"
         autocomplete="off">
-      <div class="meta" style="margin-top:6px">A extensão .json será adicionada automaticamente.</div>
+    </div>
+
+    <div class="form-group">
+      <label>Formato</label>
+      <select id="backupFileFormat">
+        <option value="gympocket">Gym Pocket (.gympocket) — recomendado</option>
+        <option value="json">JSON (.json) — universal</option>
+      </select>
+      <div class="meta" id="backupExtensionHint" style="margin-top:6px">
+        Será salvo como .gympocket.
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:0">
+      <b>Formato Gym Pocket</b>
+      <p class="meta" style="margin:6px 0 0">
+        Pode ser reconhecido pelo app em ambientes compatíveis e também pode ser importado manualmente.
+      </p>
     </div>
   `, `
     <button class="primary" type="button" id="confirmExportBackup">Baixar backup</button>
@@ -1988,16 +2007,16 @@ function exportData(){
   `);
 
   const input=$("#backupFileName");
+  const formatSelect=$("#backupFileFormat");
+  const hint=$("#backupExtensionHint");
 
   const getSafeFileName=()=>{
     let fileName=(input?.value||"").trim();
 
-    if(!fileName){
-      fileName="Gym Pocket Backup";
-    }
+    if(!fileName) fileName="Gym Pocket Backup";
 
     fileName=fileName
-      .replace(/\.json$/i,"")
+      .replace(/\.(json|gympocket)$/i,"")
       .replace(/[\\/:*?"<>|]/g,"-")
       .replace(/\s+/g," ")
       .trim();
@@ -2006,88 +2025,145 @@ function exportData(){
     return fileName;
   };
 
-  const buildBackupFile=()=>{
-    const fileName=getSafeFileName();
+  const getFormat=()=>formatSelect?.value==="json" ? "json" : "gympocket";
+
+  const buildBackupPayload=(mimeOverride=null)=>{
+    const baseName=getSafeFileName();
+    const format=getFormat();
+    const extension=format==="json" ? ".json" : ".gympocket";
+    const primaryMime=format==="json"
+      ? "application/json"
+      : "application/x-gym-pocket";
+
     const json=JSON.stringify(backup,null,2);
+    const fileName=`${baseName}${extension}`;
     const file=new File(
       [json],
-      `${fileName}.json`,
-      {type:"application/json"}
+      fileName,
+      {type:mimeOverride || primaryMime}
     );
-    return {fileName,file,json};
+
+    return {
+      baseName,
+      format,
+      extension,
+      primaryMime,
+      json,
+      fileName,
+      file
+    };
   };
 
-  const downloadBackup=()=>{
-    const {fileName,file}=buildBackupFile();
-    const url=URL.createObjectURL(file);
+  const downloadPayload=(payload)=>{
+    const url=URL.createObjectURL(payload.file);
     const a=document.createElement("a");
     a.href=url;
-    a.download=`${fileName}.json`;
+    a.download=payload.fileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  };
 
+  const downloadBackup=()=>{
+    const payload=buildBackupPayload();
+    downloadPayload(payload);
     closeModal();
-    toast(`💾 Backup "${fileName}.json" exportado.`);
+    toast(`💾 Backup "${payload.fileName}" exportado.`);
+  };
+
+  const showShareFallback=(payload)=>{
+    openModal("Compartilhar backup", `
+      <div class="card" style="border-color:rgba(255,209,102,.25)">
+        <b style="color:var(--warning)">Compartilhamento de arquivo indisponível</b>
+        <p class="meta" style="margin:6px 0 0">
+          Este navegador não aceitou compartilhar o arquivo diretamente.
+          Você pode baixá-lo e compartilhar pelo app Arquivos/Gerenciador de arquivos.
+        </p>
+      </div>
+
+      <div class="stack">
+        <button class="primary" type="button" id="fallbackDownloadBackup">
+          Baixar ${escapeHtml(payload.fileName)}
+        </button>
+        <button class="secondary" type="button" id="fallbackCopyBackup">
+          Copiar conteúdo do backup
+        </button>
+      </div>
+    `);
+
+    $("#fallbackDownloadBackup").onclick=()=>{
+      downloadPayload(payload);
+      closeModal();
+      toast("Backup baixado. Compartilhe pelo gerenciador de arquivos.");
+    };
+
+    $("#fallbackCopyBackup").onclick=async()=>{
+      try{
+        await navigator.clipboard.writeText(payload.json);
+        closeModal();
+        toast("Conteúdo do backup copiado.");
+      }catch{
+        $("#modalBody").insertAdjacentHTML("beforeend",`
+          <div class="form-group" style="margin-top:12px">
+            <textarea id="backupShareFallbackText" style="min-height:240px">${escapeHtml(payload.json)}</textarea>
+          </div>
+        `);
+        const area=$("#backupShareFallbackText");
+        area?.focus();
+        area?.select();
+      }
+    };
   };
 
   const shareBackup=async()=>{
-    const {fileName,file,json}=buildBackupFile();
+    const primary=buildBackupPayload();
+
+    if(!navigator.share){
+      showShareFallback(primary);
+      return;
+    }
+
+    // First try the correct MIME type.
+    try{
+      if(navigator.canShare && navigator.canShare({files:[primary.file]})){
+        await navigator.share({
+          title:`Backup Gym Pocket - ${primary.baseName}`,
+          text:"Backup completo do Gym Pocket.",
+          files:[primary.file]
+        });
+        closeModal();
+        return;
+      }
+    }catch(err){
+      if(err?.name==="AbortError") return;
+    }
+
+    // Some mobile browsers reject application/json or custom MIME types
+    // but accept a text/plain file with the same filename/extension.
+    const compatible=buildBackupPayload("text/plain");
 
     try{
-      if(navigator.canShare && navigator.canShare({files:[file]}) && navigator.share){
+      if(navigator.canShare && navigator.canShare({files:[compatible.file]})){
         await navigator.share({
-          title:`Backup Gym Pocket - ${fileName}`,
+          title:`Backup Gym Pocket - ${compatible.baseName}`,
           text:"Backup completo do Gym Pocket.",
-          files:[file]
+          files:[compatible.file]
         });
-
         closeModal();
         return;
       }
-
-      if(navigator.share){
-        await navigator.share({
-          title:`Backup Gym Pocket - ${fileName}`,
-          text:json
-        });
-
-        closeModal();
-        return;
-      }
-
-      await navigator.clipboard.writeText(json);
-      closeModal();
-      toast("Backup copiado. Cole onde quiser.");
     }catch(err){
-      if(err && err.name==="AbortError") return;
-
-      try{
-        await navigator.clipboard.writeText(json);
-        closeModal();
-        toast("Não foi possível anexar o arquivo. Backup copiado para a área de transferência.");
-      }catch{
-        openModal("Compartilhar backup", `
-          <p class="muted">Seu navegador não conseguiu abrir o menu de compartilhamento. Copie o conteúdo abaixo:</p>
-          <textarea id="backupShareFallback" style="min-height:280px">${escapeHtml(json)}</textarea>
-        `, `
-          <button class="primary" type="button" id="copyBackupFallback">Copiar backup</button>
-        `);
-
-        $("#copyBackupFallback").onclick=async()=>{
-          const area=$("#backupShareFallback");
-          area.select();
-          try{
-            await navigator.clipboard.writeText(area.value);
-          }catch{
-            document.execCommand("copy");
-          }
-          closeModal();
-          toast("Backup copiado.");
-        };
-      }
+      if(err?.name==="AbortError") return;
     }
+
+    showShareFallback(primary);
+  };
+
+  formatSelect.onchange=()=>{
+    hint.textContent=getFormat()==="json"
+      ? "Será salvo como .json."
+      : "Será salvo como .gympocket.";
   };
 
   $("#confirmExportBackup").onclick=downloadBackup;
@@ -2155,51 +2231,116 @@ function replaceImportedData(incoming){
   };
 }
 
+function saveBackupTextAsJson(rawText, sourceName="Gym Pocket Backup"){
+  let baseName=String(sourceName||"Gym Pocket Backup")
+    .replace(/\.(gympocket|json)$/i,"")
+    .replace(/[\\/:*?"<>|]/g,"-")
+    .trim() || "Gym Pocket Backup";
+
+  const blob=new Blob([rawText],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download=`${baseName}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+
+  toast(`Cópia "${baseName}.json" criada.`);
+}
+
+function showImportPreview(parsed,{sourceName="Backup",rawText=""}={}){
+  const incoming=normalizeImportedData(parsed);
+  const isGymPocketFile=/\.gympocket$/i.test(sourceName) || parsed?.format==="gym-pocket-backup";
+
+  openModal("Backup Gym Pocket detectado", `
+    <div class="card">
+      <div class="row">
+        <div>
+          <span class="pill">${isGymPocketFile?"GYM POCKET":"JSON"}</span>
+          <h3 style="margin:9px 0 4px">${escapeHtml(sourceName)}</h3>
+          <div class="meta">Backup reconhecido com sucesso.</div>
+        </div>
+      </div>
+
+      <div class="list-item"><span>Biblioteca de exercícios</span><b>${incoming.exerciseLibrary.length}</b></div>
+      <div class="list-item"><span>Ciclos</span><b>${incoming.programs.length}</b></div>
+      <div class="list-item"><span>Treinos</span><b>${incoming.workouts.length}</b></div>
+      <div class="list-item"><span>Histórico</span><b>${incoming.sessions.length}</b></div>
+      <div class="list-item"><span>Avaliações corporais</span><b>${incoming.body.length}</b></div>
+    </div>
+
+    <p class="muted">
+      <b>Mesclar</b> mantém seus dados atuais e incorpora o conteúdo deste backup.
+    </p>
+    <p class="muted">
+      <b>Substituir</b> apaga os dados atuais e restaura apenas este backup.
+    </p>
+  `, `
+    <button class="primary" id="mergeBackup" type="button">Mesclar com dados atuais</button>
+    <button class="danger" id="replaceBackup" type="button">Substituir dados atuais</button>
+    ${isGymPocketFile && rawText
+      ? '<button class="secondary" id="convertBackupJson" type="button">Salvar uma cópia em .json</button>'
+      : ''
+    }
+  `);
+
+  $("#mergeBackup").onclick=()=>{
+    mergeImportedData(incoming);
+    save();
+    closeModal();
+    render();
+    toast("Backup mesclado com sucesso.");
+  };
+
+  $("#replaceBackup").onclick=()=>{
+    if(!confirm("Isso vai substituir os dados atuais do Gym Pocket. Deseja continuar?")) return;
+    replaceImportedData(incoming);
+    save();
+    closeModal();
+    render();
+    toast("Dados substituídos pelo backup.");
+  };
+
+  const convert=$("#convertBackupJson");
+  if(convert){
+    convert.onclick=()=>saveBackupTextAsJson(rawText,sourceName);
+  }
+}
+
+function handleImportedText(rawText,sourceName="Backup"){
+  const parsed=JSON.parse(rawText);
+
+  const recognizable =
+    parsed?.app==="Gym Pocket" ||
+    parsed?.format==="gym-pocket-backup" ||
+    (parsed && typeof parsed==="object" && parsed.data);
+
+  if(!recognizable){
+    throw new Error("Arquivo não reconhecido como backup do Gym Pocket.");
+  }
+
+  showImportPreview(parsed,{sourceName,rawText});
+}
+
 function importData(e){
   const file=e.target.files[0];
-  if(!file)return;
+  if(!file) return;
+
   const reader=new FileReader();
+
   reader.onload=()=>{
     try{
-      const parsed=JSON.parse(reader.result);
-      const incoming=normalizeImportedData(parsed);
-
-      openModal("Importar backup", `
-        <div class="card">
-          <h3>Backup encontrado</h3>
-          <div class="list-item"><span>Treinos</span><b>${incoming.workouts.length}</b></div>
-          <div class="list-item"><span>Registros no histórico</span><b>${incoming.sessions.length}</b></div>
-          <div class="list-item"><span>Avaliações corporais</span><b>${incoming.body.length}</b></div>
-        </div>
-        <p class="muted"><b>Mesclar</b> mantém seus dados atuais e adiciona/atualiza os dados do backup.</p>
-        <p class="muted"><b>Substituir</b> apaga os dados atuais e deixa somente o conteúdo do backup.</p>
-      `, `
-        <button class="primary" id="mergeBackup" type="button">Mesclar com dados atuais</button>
-        <button class="danger" id="replaceBackup" type="button">Substituir dados atuais</button>
-      `);
-
-      $("#mergeBackup").onclick=()=>{
-        mergeImportedData(incoming);
-        save();
-        closeModal();
-        render();
-        toast("Backup mesclado com sucesso.");
-      };
-
-      $("#replaceBackup").onclick=()=>{
-        if(!confirm("Isso vai substituir os dados atuais do Gym Pocket. Deseja continuar?")) return;
-        replaceImportedData(incoming);
-        save();
-        closeModal();
-        render();
-        toast("Dados substituídos pelo backup.");
-      };
-    }catch{
-      toast("Arquivo de backup inválido.");
+      handleImportedText(reader.result,file.name);
+    }catch(err){
+      console.error(err);
+      toast("Arquivo de backup inválido ou não reconhecido.");
     }finally{
       e.target.value="";
     }
   };
+
   reader.readAsText(file);
 }
 
@@ -2260,5 +2401,54 @@ $$(".nav-item").forEach(b=>b.onclick=()=>{ currentView=b.dataset.view; render();
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredPrompt=e;$("#installBtn").hidden=false;});
 $("#installBtn").onclick=async()=>{ if(!deferredPrompt)return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("#installBtn").hidden=true; };
 
+async function consumeLaunchFile(fileHandle){
+  try{
+    const file=await fileHandle.getFile();
+    const rawText=await file.text();
+    handleImportedText(rawText,file.name);
+  }catch(err){
+    console.error("Falha ao abrir arquivo Gym Pocket:",err);
+    toast("Não consegui abrir este arquivo como backup do Gym Pocket.");
+  }
+}
+
+if("launchQueue" in window){
+  try{
+    launchQueue.setConsumer(async launchParams=>{
+      if(!launchParams.files?.length) return;
+      await consumeLaunchFile(launchParams.files[0]);
+    });
+  }catch(err){
+    console.warn("File Handling API indisponível:",err);
+  }
+}
+
+async function consumeSharedBackupFromCache(){
+  const params=new URLSearchParams(location.search);
+  if(!params.has("shared-backup")) return;
+
+  try{
+    const cache=await caches.open("gym-pocket-share-inbox");
+    const response=await cache.match("./__shared_gympocket_backup__");
+
+    if(!response){
+      toast("Nenhum backup compartilhado foi encontrado.");
+      return;
+    }
+
+    const sourceName=response.headers.get("X-GymPocket-FileName") || "Backup compartilhado.gympocket";
+    const rawText=await response.text();
+
+    await cache.delete("./__shared_gympocket_backup__");
+    history.replaceState({},document.title,location.pathname);
+
+    handleImportedText(rawText,decodeURIComponent(sourceName));
+  }catch(err){
+    console.error("Falha ao receber backup compartilhado:",err);
+    toast("Não consegui processar o backup compartilhado.");
+  }
+}
+
 if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 render();
+consumeSharedBackupFromCache();

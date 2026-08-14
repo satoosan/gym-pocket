@@ -1082,3 +1082,53 @@ Depois de escolher o nome do arquivo, o Gym Pocket oferece duas opções:
 Em dispositivos compatíveis, o compartilhamento utiliza a Web Share API com o arquivo `.json` anexado, permitindo enviar o backup diretamente para aplicativos como WhatsApp, WhatsApp Business, Telegram, e-mail, Drive e outros destinos disponíveis no sistema.
 
 Se o navegador não permitir compartilhar arquivos, o aplicativo tenta compartilhar ou copiar o conteúdo JSON como fallback.
+
+
+## Formato próprio `.gympocket`
+
+O Gym Pocket possui um formato próprio de backup:
+
+```text
+Treino do Guilherme.gympocket
+```
+
+Internamente, o arquivo continua sendo estruturado e validável, mas possui uma assinatura do Gym Pocket:
+
+```json
+{
+  "format": "gym-pocket-backup",
+  "fileFormatVersion": 1,
+  "app": "Gym Pocket"
+}
+```
+
+Ao exportar, é possível escolher entre:
+
+- **Gym Pocket (`.gympocket`)** — formato recomendado para troca entre instalações do app
+- **JSON (`.json`)** — formato universal
+
+Quando um arquivo `.gympocket` é reconhecido, o aplicativo oferece:
+
+- mesclar com os dados atuais;
+- substituir os dados atuais;
+- salvar uma cópia em `.json`.
+
+### Abrir arquivos com a PWA
+
+O manifesto registra `.gympocket` como um tipo de arquivo suportado pela PWA em ambientes que implementam a File Handling API.
+
+Em plataformas compatíveis, uma PWA instalada pode aparecer em **Abrir com...** para arquivos `.gympocket`.
+
+Como o suporte de associação direta de arquivos varia entre sistemas, o Gym Pocket também implementa um **Web Share Target**. Em instalações compatíveis, é possível compartilhar um arquivo `.gympocket` ou `.json` pelo menu do sistema e escolher **Gym Pocket** como destino.
+
+### Compartilhamento de backup
+
+O compartilhamento tenta primeiro anexar o arquivo real.
+
+Alguns navegadores recusam determinados MIME types, como JSON ou formatos personalizados. Quando isso acontece, o Gym Pocket tenta novamente usando um arquivo compatível do tipo `text/plain`, mantendo o mesmo nome e extensão.
+
+Se o navegador ainda não suportar compartilhamento de arquivos, o aplicativo oferece um fallback claro para:
+
+- baixar o arquivo;
+- compartilhar posteriormente pelo gerenciador de arquivos;
+- copiar o conteúdo do backup.
