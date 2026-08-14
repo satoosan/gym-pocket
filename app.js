@@ -1820,13 +1820,71 @@ function buildBackup(){
 
 function exportData(){
   const backup=buildBackup();
-  const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);
-  a.download=`gym-pocket-backup-completo-${todayISO()}.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  toast("Backup completo exportado.");
+
+  openModal("Exportar backup", `
+    <p class="muted">Escolha um nome para identificar este backup.</p>
+
+    <div class="form-group">
+      <label>Nome do arquivo</label>
+      <input
+        id="backupFileName"
+        value="Treino"
+        placeholder="Ex.: Treino do Guilherme"
+        autocomplete="off">
+      <div class="meta" style="margin-top:6px">A extensão .json será adicionada automaticamente.</div>
+    </div>
+  `, `
+    <button class="primary" type="button" id="confirmExportBackup">Baixar backup</button>
+  `);
+
+  const input=$("#backupFileName");
+
+  const downloadBackup=()=>{
+    let fileName=(input?.value||"").trim();
+
+    if(!fileName){
+      fileName="Gym Pocket Backup";
+    }
+
+    // Remove extensão duplicada e caracteres inválidos em nomes de arquivo.
+    fileName=fileName
+      .replace(/\.json$/i,"")
+      .replace(/[\\/:*?"<>|]/g,"-")
+      .replace(/\s+/g," ")
+      .trim();
+
+    if(!fileName) fileName="Gym Pocket Backup";
+
+    const blob=new Blob(
+      [JSON.stringify(backup,null,2)],
+      {type:"application/json"}
+    );
+
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.download=`${fileName}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    closeModal();
+    toast(`💾 Backup "${fileName}.json" exportado.`);
+  };
+
+  $("#confirmExportBackup").onclick=downloadBackup;
+
+  if(input){
+    input.focus();
+    input.select();
+    input.addEventListener("keydown",e=>{
+      if(e.key==="Enter"){
+        e.preventDefault();
+        downloadBackup();
+      }
+    });
+  }
 }
 
 function normalizeImportedData(parsed){

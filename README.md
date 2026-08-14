@@ -193,3 +193,19 @@ Quando todas as semanas de um ciclo são marcadas como concluídas, o Gym Pocket
 O histórico fica recolhido por padrão para não poluir a tela quando muitos ciclos já tiverem sido concluídos.
 
 O status do ciclo, a data de conclusão e os checks semanais continuam incluídos no backup JSON.
+
+
+## Nome personalizado do backup
+
+Antes de baixar um backup JSON, o Gym Pocket solicita um nome para o arquivo.
+
+Exemplos:
+
+```text
+Treino do Guilherme.json
+Hipertrofia - Agosto.json
+Backup antes do novo ciclo.json
+Gym Pocket - Guilherme.json
+```
+
+A extensão `.json` é adicionada automaticamente. Caracteres inválidos para nomes de arquivo são tratados antes do download.
