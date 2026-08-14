@@ -102,3 +102,14 @@ PR: 80 kg × 8 reps
 Os PRs aparecem durante a execução do treino e também na área de Progresso.
 
 > O volume total do treino continua disponível como estatística e é calculado por `peso × repetições` em todas as séries concluídas.
+
+
+## PRs compactos e celebração de recordes
+
+A área de recordes pessoais mostra apenas alguns exercícios inicialmente, evitando uma lista enorme. Também possui busca por exercício e botão para expandir ou recolher a lista.
+
+Durante o treino:
+
+- Um PR superado exibe **NOVO PR! É ISSO AÍ 🔥**
+- Um PR igualado exibe **PR IGUALADO! Continua assim 💪**
+- O botão da série recebe uma animação rápida quando isso acontece

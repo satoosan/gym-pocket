@@ -410,9 +410,30 @@ function openSession(workoutId){
   });
 
   $$(".check-set").forEach(b=>b.onclick=()=>{
+    const wasChecked=b.classList.contains("checked");
     b.classList.toggle("checked");
+
+    if(!wasChecked && b.classList.contains("checked")){
+      const row=b.closest(".set-row");
+      const exEl=b.closest(".session-ex");
+      const exerciseName=workout.exercises.find(e=>e.id===exEl.dataset.id)?.name || "";
+      const weight=+$(".set-weight",row).value||0;
+      const reps=+$(".set-reps",row).value||0;
+      const result=compareSetToPR(exerciseName,weight,reps);
+
+      if(result.status==="new"){
+        b.classList.add("pr-new");
+        setTimeout(()=>b.classList.remove("pr-new"),1800);
+      }else if(result.status==="equal"){
+        b.classList.add("pr-equal");
+        setTimeout(()=>b.classList.remove("pr-equal"),1800);
+      }
+
+      showPRCelebration(result.status,exerciseName,weight,reps);
+      startRestTimer(timerSeconds);
+    }
+
     persistActiveSessionFromUI();
-    if(b.classList.contains("checked")) startRestTimer(timerSeconds);
   });
 
   $("#saveAndCloseSession").onclick=()=>{
@@ -523,6 +544,35 @@ function isSetNewPR(exerciseName, weight, reps){
   const current=getExercisePR(exerciseName);
   if(!current) return weight>0 && reps>0;
   return weight>current.weight || (weight===current.weight && reps>current.reps);
+}
+
+
+function compareSetToPR(exerciseName, weight, reps){
+  const current=getExercisePR(exerciseName);
+  weight=+weight||0;
+  reps=+reps||0;
+
+  if(weight<=0 || reps<=0) return {status:"none",current};
+
+  if(!current) return {status:"new",current:null};
+
+  if(weight>current.weight || (weight===current.weight && reps>current.reps)){
+    return {status:"new",current};
+  }
+
+  if(weight===current.weight && reps===current.reps){
+    return {status:"equal",current};
+  }
+
+  return {status:"none",current};
+}
+
+function showPRCelebration(status, exerciseName, weight, reps){
+  if(status==="new"){
+    toast(`🔥 NOVO PR! ${exerciseName}: ${weight} kg × ${reps}. É ISSO AÍ!`);
+  }else if(status==="equal"){
+    toast(`💪 PR IGUALADO! ${exerciseName}: ${weight} kg × ${reps}. Continua assim!`);
+  }
 }
 
 function sessionVolume(s){
@@ -765,17 +815,18 @@ function renderProgress(app){
     <section class="card">
       ${(()=>{
         const prs=getAllExercisePRs();
-        return prs.length
-          ? prs.map(item=>`
-              <div class="list-item">
-                <div>
-                  <b>${escapeHtml(item.name)}</b>
-                  <div class="meta">${fmtDate(item.pr.date)} · ${escapeHtml(item.pr.workoutName||"Treino")}</div>
-                </div>
-                <span class="pill pr-pill">${item.pr.weight} kg × ${item.pr.reps}</span>
-              </div>
-            `).join("")
-          : `<div class="empty-state" style="padding:24px 10px"><div class="empty-icon">🏆</div><h3>Sem PRs ainda</h3><p>Finalize séries com carga e repetições para começar a registrar seus recordes.</p></div>`;
+        if(!prs.length){
+          return `<div class="empty-state" style="padding:24px 10px"><div class="empty-icon">🏆</div><h3>Sem PRs ainda</h3><p>Finalize séries com carga e repetições para começar a registrar seus recordes.</p></div>`;
+        }
+
+        return `
+          <div class="form-group" style="margin-bottom:10px">
+            <input id="prSearch" placeholder="Buscar exercício..." autocomplete="off">
+          </div>
+          <div id="prList"></div>
+          ${prs.length>6?`<button class="secondary" type="button" id="toggleAllPRs" style="margin-top:12px">Ver todos (${prs.length})</button>`:""}
+          <div class="meta" id="prCount" style="margin-top:10px"></div>
+        `;
       })()}
     </section>
 
@@ -800,6 +851,51 @@ function renderProgress(app){
     </section>`;
   drawChart($("#weightChart"), body.map(x=>({label:x.date.slice(5),fullDate:x.date,value:x.weight})), {label:"Peso",suffix:" kg"});
   drawChart($("#volumeChart"), [...state.sessions].sort((a,b)=>a.date.localeCompare(b.date)).map(x=>({label:x.date.slice(5),fullDate:x.date,value:Math.round(sessionVolume(x))})).slice(-12), {label:"Volume",suffix:" kg"});
+
+  const allPRs=getAllExercisePRs();
+  let showingAllPRs=false;
+
+  const renderPRList=(filter="")=>{
+    const list=$("#prList");
+    if(!list) return;
+
+    const normalized=normalizeExerciseName(filter);
+    const filtered=allPRs.filter(item=>normalizeExerciseName(item.name).includes(normalized));
+    const rows=(showingAllPRs || normalized ? filtered : filtered.slice(0,6));
+
+    list.innerHTML=rows.length
+      ? rows.map(item=>`
+          <div class="list-item pr-row">
+            <div>
+              <b>${escapeHtml(item.name)}</b>
+              <div class="meta">${fmtDate(item.pr.date)} · ${escapeHtml(item.pr.workoutName||"Treino")}</div>
+            </div>
+            <span class="pill pr-pill">${item.pr.weight} kg × ${item.pr.reps}</span>
+          </div>
+        `).join("")
+      : `<div class="empty-state" style="padding:18px 8px"><p>Nenhum exercício encontrado.</p></div>`;
+
+    const count=$("#prCount");
+    if(count) count.textContent=`${rows.length} de ${filtered.length} exercícios`;
+
+    const toggle=$("#toggleAllPRs");
+    if(toggle && !normalized){
+      toggle.textContent=showingAllPRs ? "Mostrar menos" : `Ver todos (${allPRs.length})`;
+    }
+  };
+
+  const prSearch=$("#prSearch");
+  if(prSearch){
+    prSearch.oninput=()=>renderPRList(prSearch.value);
+    renderPRList("");
+  }
+
+  const toggle=$("#toggleAllPRs");
+  if(toggle) toggle.onclick=()=>{
+    showingAllPRs=!showingAllPRs;
+    renderPRList(prSearch?.value||"");
+  };
+
   $("#exportData").onclick=exportData;
   $("#importData").onclick=()=>$("#importFile").click();
   $("#importFile").onchange=importData;
