@@ -135,3 +135,5 @@ hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
 
 .timer-done { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(181,243,74,.25), var(--shadow); }
 .timer-done #restTime { color: var(--accent); }
+
+.day.today { outline: 2px solid rgba(181,243,74,.35); outline-offset: 2px; }

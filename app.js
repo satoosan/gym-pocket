@@ -18,6 +18,7 @@ const defaultData = {
   ],
   sessions: [],
   body: [],
+  activeSession: null,
   settings: { goalWeight: 80 }
 };
 
@@ -26,8 +27,19 @@ let currentView = "home";
 let deferredPrompt = null;
 
 function load(){
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || structuredClone(defaultData); }
-  catch { return structuredClone(defaultData); }
+  try {
+    const raw=JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if(!raw) return structuredClone(defaultData);
+    return {
+      workouts:Array.isArray(raw.workouts)?raw.workouts:[],
+      sessions:Array.isArray(raw.sessions)?raw.sessions:[],
+      body:Array.isArray(raw.body)?raw.body:[],
+      activeSession:raw.activeSession||null,
+      settings:{...defaultData.settings,...(raw.settings||{})}
+    };
+  } catch {
+    return structuredClone(defaultData);
+  }
 }
 function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 function fmtDate(d){ return new Intl.DateTimeFormat("pt-BR",{day:"2-digit",month:"short",year:"numeric"}).format(new Date(d)); }
@@ -51,30 +63,72 @@ function render(){
   if(currentView==="progress") renderProgress(app);
 }
 
-function renderHome(app){
-  const lastBody = [...state.body].sort((a,b)=>b.date.localeCompare(a.date))[0];
-  const month = new Date().toISOString().slice(0,7);
-  const monthSessions = state.sessions.filter(s=>s.date.startsWith(month));
-  const todayName = ["Dom","Seg","Ter","Qua","Qui","Sex","Sab"][new Date().getDay()];
-  const planned = state.workouts.find(w=>w.days.includes(todayName)) || state.workouts[0];
+function getWeekBounds(){
+  const now=new Date();
+  const day=(now.getDay()+6)%7; // Monday = 0
+  const start=new Date(now);
+  start.setHours(0,0,0,0);
+  start.setDate(now.getDate()-day);
+  const end=new Date(start);
+  end.setDate(start.getDate()+6);
+  end.setHours(23,59,59,999);
+  return {start,end};
+}
 
+function renderHome(app){
+  const lastBody=[...state.body].sort((a,b)=>b.date.localeCompare(a.date))[0];
+  const month=new Date().toISOString().slice(0,7);
+  const monthSessions=state.sessions.filter(s=>s.date.startsWith(month));
+  const todayName=["Dom","Seg","Ter","Qua","Qui","Sex","Sab"][new Date().getDay()];
+  const plannedToday=state.workouts.filter(w=>Array.isArray(w.days) && w.days.includes(todayName));
+
+  const {start:weekStart,end:weekEnd}=getWeekBounds();
   const weekDays=["Seg","Ter","Qua","Qui","Sex","Sab","Dom"];
-  const weekHtml = weekDays.map(d=>{
-    const done = state.sessions.some(s=>new Date(s.date+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"short"}).slice(0,3).toLowerCase()===d.toLowerCase());
-    return `<div class="day ${done?"done":""}"><small>${d}</small><b>${done?"✓":"•"}</b></div>`;
+
+  const weekHtml=weekDays.map((d,index)=>{
+    const date=new Date(weekStart);
+    date.setDate(weekStart.getDate()+index);
+    const iso=date.toISOString().slice(0,10);
+
+    const plannedCount=state.workouts.filter(w=>Array.isArray(w.days)&&w.days.includes(d)).length;
+    const completedCount=state.sessions.filter(s=>s.date===iso).length;
+    const isToday=iso===todayISO();
+
+    let symbol="•";
+    if(completedCount>0) symbol="✓";
+    else if(plannedCount>0) symbol=plannedCount>1?String(plannedCount):"○";
+
+    return `<div class="day ${completedCount>0?"done":""} ${isToday?"today":""}">
+      <small>${d}</small>
+      <b>${symbol}</b>
+      ${plannedCount>0?`<div class="meta" style="font-size:9px;margin-top:4px">${plannedCount} treino${plannedCount>1?"s":""}</div>`:""}
+    </div>`;
   }).join("");
 
+  const todayCards = plannedToday.length
+    ? plannedToday.map((w,i)=>`
+        <section class="card hero">
+          <div class="row">
+            <div>
+              <span class="pill">${plannedToday.length>1?`Treino ${i+1} de ${plannedToday.length}`:"Treino de hoje"}</span>
+              <h2 style="font-size:26px;margin:12px 0 6px">${escapeHtml(w.name)}</h2>
+              <p class="muted">${w.exercises.length} exercícios · ${todayName}</p>
+            </div>
+          </div>
+          <button class="primary" data-start-workout="${w.id}">INICIAR TREINO</button>
+        </section>
+      `).join("")
+    : `
+      <section class="card hero">
+        <span class="pill" style="color:var(--warning);background:rgba(255,209,102,.1)">Sem treino hoje</span>
+        <h2 style="font-size:26px;margin:12px 0 6px">Nenhum treino agendado</h2>
+        <p class="muted">Hoje é ${todayName}. Você pode editar suas fichas e definir este dia da semana.</p>
+        <button class="secondary" id="goWorkouts">VER TREINOS</button>
+      </section>
+    `;
+
   app.innerHTML=`
-    <section class="card hero">
-      <div class="row">
-        <div>
-          <span class="pill">${planned ? "Treino sugerido" : "Sem treino"}</span>
-          <h2 style="font-size:28px;margin:12px 0 6px">${planned ? escapeHtml(planned.name) : "Crie seu primeiro treino"}</h2>
-          <p class="muted">${planned ? `${planned.exercises.length} exercícios` : "Comece montando sua ficha."}</p>
-        </div>
-      </div>
-      <button class="primary" id="startWorkout">${planned ? "INICIAR TREINO" : "CRIAR TREINO"}</button>
-    </section>
+    ${todayCards}
 
     <div class="section-title"><h2>Esta semana</h2></div>
     <section class="card"><div class="week">${weekHtml}</div></section>
@@ -91,7 +145,10 @@ function renderHome(app){
       `).join("") : $("#emptyTemplate").innerHTML}
     </section>
   `;
-  $("#startWorkout").onclick=()=> planned ? openSession(planned.id) : openWorkoutEditor();
+
+  $$("[data-start-workout]").forEach(b=>b.onclick=()=>openSession(b.dataset.startWorkout));
+  const go=$("#goWorkouts");
+  if(go) go.onclick=()=>{ currentView="workouts"; render(); };
 }
 
 function renderWorkouts(app){
@@ -190,26 +247,94 @@ function stopRestTimer(){
   const el=$("#restTime"); if(el) el.textContent="01:30";
 }
 
+function createSessionDraft(workout){
+  const previous=[...state.sessions].reverse().find(s=>s.workoutId===workout.id);
+  return {
+    id:crypto.randomUUID(),
+    workoutId:workout.id,
+    workoutName:workout.name,
+    date:todayISO(),
+    exercises:workout.exercises.map(ex=>{
+      const prevEx=previous?.exercises.find(x=>x.exerciseId===ex.id);
+      return {
+        exerciseId:ex.id,
+        name:ex.name,
+        sets:Array.from({length:ex.sets},(_,i)=>{
+          const prevSet=prevEx?.sets?.[i];
+          return {
+            weight:prevSet?.weight ?? ex.weight ?? 0,
+            reps:prevSet?.reps ?? (parseInt(ex.reps)||0),
+            done:false
+          };
+        })
+      };
+    })
+  };
+}
+
+function persistActiveSessionFromUI(){
+  if(!state.activeSession) return;
+  state.activeSession.exercises=$$(".session-ex").map(exEl=>({
+    exerciseId:exEl.dataset.id,
+    name:state.activeSession.exercises.find(x=>x.exerciseId===exEl.dataset.id)?.name || "",
+    sets:$$(".set-row",exEl).map(r=>({
+      weight:+$(".set-weight",r).value||0,
+      reps:+$(".set-reps",r).value||0,
+      done:$(".check-set",r).classList.contains("checked")
+    }))
+  }));
+  save();
+}
+
 function openSession(workoutId){
   const workout=state.workouts.find(w=>w.id===workoutId);
   if(!workout) return;
-  const previous=[...state.sessions].reverse().find(s=>s.workoutId===workoutId);
+
+  // Resume same unfinished workout; otherwise create a new draft.
+  if(!state.activeSession || state.activeSession.workoutId!==workoutId){
+    state.activeSession=createSessionDraft(workout);
+    save();
+  }
+
+  const draft=state.activeSession;
+
   const body=workout.exercises.map(ex=>{
-    const prevEx=previous?.exercises.find(x=>x.exerciseId===ex.id);
+    let draftEx=draft.exercises.find(x=>x.exerciseId===ex.id);
+
+    // If exercise was added/changed after draft creation, rebuild only that part.
+    if(!draftEx){
+      draftEx={
+        exerciseId:ex.id,
+        name:ex.name,
+        sets:Array.from({length:ex.sets},()=>({weight:ex.weight||0,reps:parseInt(ex.reps)||0,done:false}))
+      };
+      draft.exercises.push(draftEx);
+    }
+
+    while(draftEx.sets.length<ex.sets){
+      draftEx.sets.push({weight:ex.weight||0,reps:parseInt(ex.reps)||0,done:false});
+    }
+    if(draftEx.sets.length>ex.sets) draftEx.sets=draftEx.sets.slice(0,ex.sets);
+
     return `<section class="card session-ex" data-id="${ex.id}">
-      <div class="row"><div><h3>${escapeHtml(ex.name)}</h3><div class="meta">Meta: ${ex.sets} × ${escapeHtml(ex.reps)}</div></div><span class="pill">${prevEx ? "Último treino disponível" : "Primeira vez"}</span></div>
+      <div class="row">
+        <div>
+          <h3>${escapeHtml(ex.name)}</h3>
+          <div class="meta">Meta: ${ex.sets} × ${escapeHtml(ex.reps)}</div>
+        </div>
+        <span class="pill">${draftEx.sets.some(s=>s.done)?"Em andamento":"Primeira vez"}</span>
+      </div>
       <div class="meta" style="margin:8px 0">Série · Peso (kg) · Reps</div>
-      ${Array.from({length:ex.sets},(_,i)=>{
-        const prevSet=prevEx?.sets?.[i];
-        return `<div class="set-row">
+      ${draftEx.sets.map((set,i)=>`
+        <div class="set-row">
           <div class="set-num">${i+1}</div>
-          <input class="set-weight" type="number" step="0.5" value="${prevSet?.weight ?? ex.weight ?? 0}">
-          <input class="set-reps" type="number" min="0" value="${prevSet?.reps ?? (parseInt(ex.reps) || 0)}">
-          <button type="button" class="check-set">✓</button>
-        </div>`;
-      }).join("")}
+          <input class="set-weight" type="number" step="0.5" value="${set.weight}">
+          <input class="set-reps" type="number" min="0" value="${set.reps}">
+          <button type="button" class="check-set ${set.done?"checked":""}">✓</button>
+        </div>`).join("")}
     </section>`;
   }).join("");
+
   openModal(workout.name, `
     <section class="card" id="restTimer">
       <div class="row">
@@ -223,31 +348,70 @@ function openSession(workoutId){
         </div>
       </div>
       <div class="grid-2" style="margin-top:12px">
-        <button class="secondary" type="button" id="startTimer">Iniciar 1:30</button>
+        <button class="secondary" type="button" id="startTimer">Iniciar 01:30</button>
         <button class="secondary" type="button" id="stopTimer">Parar</button>
       </div>
       <p class="meta" style="margin:10px 0 0">Ao concluir uma série, o descanso inicia automaticamente.</p>
     </section>
-    ${body}`, `<button class="primary" type="button" id="finishSession">FINALIZAR TREINO</button>`);
+    ${body}`, `
+      <button class="primary" type="button" id="finishSession">FINALIZAR TREINO</button>
+      <button class="secondary" type="button" id="saveAndCloseSession">SALVAR E CONTINUAR DEPOIS</button>
+      <button class="danger" type="button" id="discardSession">DESCARTAR TREINO EM ANDAMENTO</button>
+    `);
+
   let timerSeconds=90;
-  const refreshTimerLabel=()=>{ const m=String(Math.floor(timerSeconds/60)).padStart(2,"0"),s=String(timerSeconds%60).padStart(2,"0"); $("#restTime").textContent=`${m}:${s}`; $("#startTimer").textContent=`Iniciar ${m}:${s}`; };
+  const refreshTimerLabel=()=>{
+    const m=String(Math.floor(timerSeconds/60)).padStart(2,"0");
+    const s=String(timerSeconds%60).padStart(2,"0");
+    $("#restTime").textContent=`${m}:${s}`;
+    $("#startTimer").textContent=`Iniciar ${m}:${s}`;
+  };
+
   $("#minusTimer").onclick=()=>{timerSeconds=Math.max(15,timerSeconds-15);stopRestTimer();refreshTimerLabel();};
   $("#plusTimer").onclick=()=>{timerSeconds=Math.min(600,timerSeconds+15);stopRestTimer();refreshTimerLabel();};
   $("#startTimer").onclick=()=>startRestTimer(timerSeconds);
   $("#stopTimer").onclick=()=>{stopRestTimer();refreshTimerLabel();};
-  $$(".check-set").forEach(b=>b.onclick=()=>{ b.classList.toggle("checked"); if(b.classList.contains("checked")) startRestTimer(timerSeconds); });
+
+  $$(".set-weight, .set-reps").forEach(inp=>{
+    inp.addEventListener("input",persistActiveSessionFromUI);
+    inp.addEventListener("change",persistActiveSessionFromUI);
+  });
+
+  $$(".check-set").forEach(b=>b.onclick=()=>{
+    b.classList.toggle("checked");
+    persistActiveSessionFromUI();
+    if(b.classList.contains("checked")) startRestTimer(timerSeconds);
+  });
+
+  $("#saveAndCloseSession").onclick=()=>{
+    persistActiveSessionFromUI();
+    stopRestTimer();
+    closeModal();
+    toast("Treino salvo. Você pode continuar depois.");
+  };
+
+  $("#discardSession").onclick=()=>{
+    if(!confirm("Descartar o treino em andamento? Os checks e valores ainda não finalizados serão apagados.")) return;
+    state.activeSession=null;
+    save();
+    stopRestTimer();
+    closeModal();
+    toast("Treino em andamento descartado.");
+  };
+
   $("#finishSession").onclick=()=>{
-    const exercises=$$(".session-ex").map(exEl=>({
-      exerciseId:exEl.dataset.id,
-      name:workout.exercises.find(e=>e.id===exEl.dataset.id)?.name || "",
-      sets:$$(".set-row",exEl).map(r=>({
-        weight:+$(".set-weight",r).value||0,
-        reps:+$(".set-reps",r).value||0,
-        done:$(".check-set",r).classList.contains("checked")
-      }))
-    }));
-    state.sessions.push({id:crypto.randomUUID(),workoutId,workoutName:workout.name,date:todayISO(),exercises});
-    save(); stopRestTimer(); closeModal(); currentView="history"; render(); toast("Treino registrado. Boa!");
+    persistActiveSessionFromUI();
+    const finished=structuredClone(state.activeSession);
+    finished.id=crypto.randomUUID();
+    finished.date=todayISO();
+    state.sessions.push(finished);
+    state.activeSession=null;
+    save();
+    stopRestTimer();
+    closeModal();
+    currentView="history";
+    render();
+    toast("Treino registrado. Boa!");
   };
 }
 
@@ -621,6 +785,7 @@ function buildBackup(){
       workouts: state.workouts,
       sessions: state.sessions,
       body: state.body,
+      activeSession: state.activeSession,
       settings: state.settings
     }
   };
@@ -645,6 +810,7 @@ function normalizeImportedData(parsed){
     workouts:Array.isArray(data.workouts)?data.workouts:[],
     sessions:Array.isArray(data.sessions)?data.sessions:[],
     body:Array.isArray(data.body)?data.body:[],
+    activeSession:data.activeSession||null,
     settings:data.settings && typeof data.settings==="object" ? data.settings : {}
   };
 }
@@ -664,6 +830,7 @@ function mergeImportedData(incoming){
     workouts:mergeById(state.workouts,incoming.workouts),
     sessions:mergeById(state.sessions,incoming.sessions),
     body:mergeById(state.body,incoming.body),
+    activeSession:state.activeSession || incoming.activeSession || null,
     settings:{...state.settings,...incoming.settings}
   };
 }
@@ -673,6 +840,7 @@ function replaceImportedData(incoming){
     workouts:incoming.workouts,
     sessions:incoming.sessions,
     body:incoming.body,
+    activeSession:incoming.activeSession||null,
     settings:{...defaultData.settings,...incoming.settings}
   };
 }
@@ -729,6 +897,7 @@ function resetProgressData(){
   if(!confirm("Resetar todo o progresso? Isso apagará o histórico de treinos e todas as avaliações corporais, mas manterá suas fichas de treino.")) return;
   state.sessions=[];
   state.body=[];
+  state.activeSession=null;
   save();
   render();
   toast("Progresso e histórico resetados.");
@@ -737,6 +906,7 @@ function resetProgressData(){
 function resetWorkoutData(){
   if(!confirm("Resetar todas as fichas de treino? O histórico e as avaliações corporais serão mantidos.")) return;
   state.workouts=[];
+  state.activeSession=null;
   save();
   render();
   toast("Fichas de treino resetadas.");
@@ -745,7 +915,7 @@ function resetWorkoutData(){
 function resetAllData(){
   if(!confirm("RESETAR TUDO? Isso apagará treinos, histórico, avaliações e configurações salvas neste aparelho.")) return;
   if(!confirm("Última confirmação: deseja realmente apagar todos os dados do Gym Pocket?")) return;
-  state={workouts:[],sessions:[],body:[],settings:{...defaultData.settings}};
+  state={workouts:[],sessions:[],body:[],activeSession:null,settings:{...defaultData.settings}};
   save();
   render();
   toast("Gym Pocket resetado.");
@@ -753,7 +923,11 @@ function resetAllData(){
 function openModal(title,body,actions=""){
   $("#modalTitle").textContent=title; $("#modalBody").innerHTML=body; $("#modalActions").innerHTML=actions; $("#modal").showModal();
 }
-function closeModal(){ clearInterval(restTimerInterval); $("#modal").close(); }
+function closeModal(){
+  clearInterval(restTimerInterval);
+  if(state.activeSession && $$(".session-ex").length) persistActiveSessionFromUI();
+  $("#modal").close();
+}
 $("#modalClose").onclick=closeModal;
 $$(".nav-item").forEach(b=>b.onclick=()=>{ currentView=b.dataset.view; render(); });
 
