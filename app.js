@@ -4,6 +4,11 @@ const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
 
 const defaultData = {
+  exerciseLibrary: [
+    { id: crypto.randomUUID(), name:"Supino reto", muscle:"Peito" },
+    { id: crypto.randomUUID(), name:"Desenvolvimento", muscle:"Ombros" },
+    { id: crypto.randomUUID(), name:"Tríceps corda", muscle:"Tríceps" }
+  ],
   workouts: [
     {
       id: crypto.randomUUID(),
@@ -29,10 +34,60 @@ let deferredPrompt = null;
 function load(){
   try {
     const raw=JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if(!raw) return structuredClone(defaultData);
+    if(!raw) {
+      const fresh=structuredClone(defaultData);
+
+      // Vincula os exercícios da ficha inicial à biblioteca.
+      fresh.workouts.forEach(w=>{
+        w.exercises.forEach(ex=>{
+          const lib=fresh.exerciseLibrary.find(item=>normalizeExerciseName(item.name)===normalizeExerciseName(ex.name));
+          if(lib) ex.libraryId=lib.id;
+        });
+      });
+
+      return fresh;
+    }
+
+    const workouts=Array.isArray(raw.workouts)?raw.workouts:[];
+    const exerciseLibrary=Array.isArray(raw.exerciseLibrary)?raw.exerciseLibrary:[];
+
+    // Migração automática: exercícios já existentes nas fichas entram na biblioteca.
+    workouts.forEach(w=>{
+      (w.exercises||[]).forEach(ex=>{
+        let lib=null;
+
+        if(ex.libraryId){
+          lib=exerciseLibrary.find(item=>item.id===ex.libraryId);
+        }
+
+        if(!lib){
+          lib=exerciseLibrary.find(item=>normalizeExerciseName(item.name)===normalizeExerciseName(ex.name));
+        }
+
+        if(!lib && ex.name){
+          lib={id:crypto.randomUUID(),name:ex.name,muscle:""};
+          exerciseLibrary.push(lib);
+        }
+
+        if(lib) ex.libraryId=lib.id;
+      });
+    });
+
+    // Histórico antigo também recebe o libraryId quando é possível identificar pelo nome.
+    const sessions=Array.isArray(raw.sessions)?raw.sessions:[];
+    sessions.forEach(session=>{
+      (session.exercises||[]).forEach(ex=>{
+        if(!ex.libraryId){
+          const lib=exerciseLibrary.find(item=>normalizeExerciseName(item.name)===normalizeExerciseName(ex.name));
+          if(lib) ex.libraryId=lib.id;
+        }
+      });
+    });
+
     return {
-      workouts:Array.isArray(raw.workouts)?raw.workouts:[],
-      sessions:Array.isArray(raw.sessions)?raw.sessions:[],
+      exerciseLibrary,
+      workouts,
+      sessions,
       body:Array.isArray(raw.body)?raw.body:[],
       activeSession:raw.activeSession||null,
       settings:{...defaultData.settings,...(raw.settings||{})}
@@ -53,11 +108,12 @@ function escapeHtml(v=""){ return String(v).replace(/[&<>"']/g, m=>({"&":"&amp;"
 
 function render(){
   const app=$("#app");
-  const titles={home:"Hoje",workouts:"Treinos",history:"Histórico",body:"Corpo",progress:"Progresso"};
+  const titles={home:"Hoje",workouts:"Treinos",exercises:"Exercícios",history:"Histórico",body:"Corpo",progress:"Progresso"};
   $("#pageTitle").textContent=titles[currentView];
   $$(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===currentView));
   if(currentView==="home") renderHome(app);
   if(currentView==="workouts") renderWorkouts(app);
+  if(currentView==="exercises") renderExerciseLibrary(app);
   if(currentView==="history") renderHistory(app);
   if(currentView==="body") renderBody(app);
   if(currentView==="progress") renderProgress(app);
@@ -151,6 +207,202 @@ function renderHome(app){
   if(go) go.onclick=()=>{ currentView="workouts"; render(); };
 }
 
+
+function renderExerciseLibrary(app){
+  const renderList=(filter="")=>{
+    const normalized=normalizeExerciseName(filter);
+    const items=[...state.exerciseLibrary]
+      .filter(e=>normalizeExerciseName(e.name).includes(normalized))
+      .sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
+
+    const list=$("#exerciseLibraryList");
+    if(!list) return;
+
+    list.innerHTML=items.length
+      ? items.map(e=>`
+          <div class="list-item">
+            <div>
+              <b>${escapeHtml(e.name)}</b>
+              <div class="meta">${escapeHtml(e.muscle||"Sem grupo muscular")}</div>
+            </div>
+            <button class="small-btn" data-edit-library="${e.id}">Editar</button>
+          </div>
+        `).join("")
+      : `<div class="empty-state" style="padding:24px 8px">
+          <div class="empty-icon">☷</div>
+          <h3>Nenhum exercício</h3>
+          <p>Cadastre um exercício ou altere a busca.</p>
+        </div>`;
+
+    $$("[data-edit-library]").forEach(btn=>{
+      btn.onclick=()=>openLibraryExerciseEditor(btn.dataset.editLibrary);
+    });
+  };
+
+  app.innerHTML=`
+    <button class="primary" id="newLibraryExercise">＋ NOVO EXERCÍCIO</button>
+
+    <div class="section-title"><h2>Biblioteca de exercícios</h2></div>
+    <section class="card">
+      <div class="form-group">
+        <label>Buscar</label>
+        <input id="exerciseLibrarySearch" placeholder="Ex.: supino, rosca, agachamento..." autocomplete="off">
+      </div>
+      <div id="exerciseLibraryList"></div>
+    </section>
+  `;
+
+  $("#newLibraryExercise").onclick=()=>openLibraryExerciseEditor();
+  $("#exerciseLibrarySearch").oninput=e=>renderList(e.target.value);
+  renderList();
+}
+
+function openLibraryExerciseEditor(id=null, afterSave=null){
+  const existing=id ? state.exerciseLibrary.find(e=>e.id===id) : null;
+
+  openModal(existing?"Editar exercício":"Novo exercício", `
+    <div id="libraryValidation" class="validation-box" hidden></div>
+
+    <div class="form-group">
+      <label>Nome do exercício</label>
+      <input id="libraryExerciseName" value="${escapeHtml(existing?.name||"")}" placeholder="Ex.: Supino reto máquina">
+    </div>
+
+    <div class="form-group">
+      <label>Grupo muscular</label>
+      <input id="libraryExerciseMuscle" value="${escapeHtml(existing?.muscle||"")}" placeholder="Ex.: Peito">
+    </div>
+  `, `
+    <button class="primary" type="button" id="saveLibraryExercise">Salvar exercício</button>
+    ${existing?'<button class="danger" type="button" id="deleteLibraryExercise">Excluir exercício</button>':""}
+  `);
+
+  $("#saveLibraryExercise").onclick=()=>{
+    const name=$("#libraryExerciseName").value.trim();
+    const muscle=$("#libraryExerciseMuscle").value.trim();
+    const validation=$("#libraryValidation");
+
+    const errors=[];
+    if(!name) errors.push("Informe o nome do exercício.");
+
+    const duplicate=state.exerciseLibrary.find(e=>
+      e.id!==id &&
+      normalizeExerciseName(e.name)===normalizeExerciseName(name)
+    );
+    if(duplicate) errors.push("Já existe um exercício com esse nome.");
+
+    if(errors.length){
+      validation.hidden=false;
+      validation.innerHTML=`<b>Não foi possível salvar:</b><ul>${errors.map(e=>`<li>${escapeHtml(e)}</li>`).join("")}</ul>`;
+      return;
+    }
+
+    let saved;
+    if(existing){
+      existing.name=name;
+      existing.muscle=muscle;
+      saved=existing;
+
+      // Atualiza o nome nas fichas vinculadas.
+      state.workouts.forEach(w=>{
+        (w.exercises||[]).forEach(ex=>{
+          if(ex.libraryId===existing.id) ex.name=name;
+        });
+      });
+    }else{
+      saved={id:crypto.randomUUID(),name,muscle};
+      state.exerciseLibrary.push(saved);
+    }
+
+    save();
+    closeModal();
+
+    if(typeof afterSave==="function"){
+      afterSave(saved);
+    }else{
+      currentView="exercises";
+      render();
+    }
+
+    toast("Exercício salvo.");
+  };
+
+  if(existing){
+    $("#deleteLibraryExercise").onclick=()=>{
+      const used=state.workouts.some(w=>(w.exercises||[]).some(ex=>ex.libraryId===existing.id));
+      if(used){
+        toast("Esse exercício está sendo usado em uma ficha.");
+        return;
+      }
+
+      if(!confirm(`Excluir "${existing.name}" da biblioteca?`)) return;
+
+      state.exerciseLibrary=state.exerciseLibrary.filter(e=>e.id!==existing.id);
+      save();
+      closeModal();
+      currentView="exercises";
+      render();
+      toast("Exercício excluído.");
+    };
+  }
+}
+
+function openExercisePicker(onSelect){
+  const draw=(filter="")=>{
+    const normalized=normalizeExerciseName(filter);
+    const items=[...state.exerciseLibrary]
+      .filter(e=>normalizeExerciseName(e.name).includes(normalized))
+      .sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
+
+    $("#exercisePickerList").innerHTML=items.length
+      ? items.map(e=>`
+          <button class="exercise-pick-item" type="button" data-pick-exercise="${e.id}">
+            <div>
+              <b>${escapeHtml(e.name)}</b>
+              <span>${escapeHtml(e.muscle||"Sem grupo muscular")}</span>
+            </div>
+            <strong>＋</strong>
+          </button>
+        `).join("")
+      : `<div class="empty-state" style="padding:20px 8px">
+          <p>Nenhum exercício encontrado.</p>
+        </div>`;
+
+    $$("[data-pick-exercise]").forEach(btn=>{
+      btn.onclick=()=>{
+        const selected=state.exerciseLibrary.find(e=>e.id===btn.dataset.pickExercise);
+        if(!selected) return;
+        closeModal();
+        onSelect(selected);
+      };
+    });
+  };
+
+  openModal("Selecionar exercício", `
+    <div class="form-group">
+      <label>Buscar na biblioteca</label>
+      <input id="exercisePickerSearch" placeholder="Digite o nome do exercício..." autocomplete="off">
+    </div>
+
+    <div id="exercisePickerList"></div>
+
+    <hr>
+
+    <button class="secondary" type="button" id="createExerciseFromPicker">＋ CADASTRAR NOVO EXERCÍCIO</button>
+  `);
+
+  $("#exercisePickerSearch").oninput=e=>draw(e.target.value);
+  $("#createExerciseFromPicker").onclick=()=>{
+    closeModal();
+    openLibraryExerciseEditor(null, selected=>{
+      onSelect(selected);
+    });
+  };
+
+  draw();
+}
+
+
 function renderWorkouts(app){
   app.innerHTML=`
     <button class="primary" id="newWorkout">＋ NOVO TREINO</button>
@@ -186,8 +438,55 @@ function openWorkoutEditor(id){
     <button class="primary" type="button" id="saveWorkout">Salvar treino</button>
     ${id ? '<button class="danger" type="button" id="deleteWorkout">Excluir treino</button>' : ""}
   `);
+  const renumberExerciseRows=()=>{
+    $$(".exercise-edit").forEach((row,i)=>{
+      const label=$(".exercise-number",row);
+      if(label) label.textContent=`Exercício ${i+1}`;
+    });
+  };
+
+  const bindExerciseEditorEvents=()=>{
+    $$(".exercise-edit").forEach(row=>{
+      const choose=$(".chooseExerciseBtn",row);
+      const remove=$(".removeExerciseBtn",row);
+
+      if(choose && !choose.dataset.bound){
+        choose.dataset.bound="1";
+        choose.onclick=()=>{
+          openExercisePicker(selected=>{
+            row.dataset.libraryId=selected.id;
+            $(".eName",row).value=selected.name;
+            $(".selectedExerciseName",row).textContent=selected.name;
+            choose.textContent="Trocar";
+            clearWorkoutValidation();
+          });
+        };
+      }
+
+      if(remove && !remove.dataset.bound){
+        remove.dataset.bound="1";
+        remove.onclick=()=>{
+          row.remove();
+          renumberExerciseRows();
+          clearWorkoutValidation();
+        };
+      }
+    });
+  };
+
   $("#addExercise").onclick=()=>{
-    $("#exerciseEditor").insertAdjacentHTML("beforeend", exerciseEditorRow({id:crypto.randomUUID(),name:"",sets:3,reps:"8-12",weight:0}, $("#exerciseEditor").children.length));
+    $("#exerciseEditor").insertAdjacentHTML(
+      "beforeend",
+      exerciseEditorRow({
+        id:crypto.randomUUID(),
+        libraryId:"",
+        name:"",
+        sets:3,
+        reps:"8-12",
+        weight:0
+      }, $("#exerciseEditor").children.length)
+    );
+    bindExerciseEditorEvents();
   };
   const clearWorkoutValidation=()=>{
     const v=$("#workoutValidation");
@@ -195,11 +494,13 @@ function openWorkoutEditor(id){
   };
   $("#wName").addEventListener("input",clearWorkoutValidation);
   $("#exerciseEditor").addEventListener("input",clearWorkoutValidation);
+  bindExerciseEditorEvents();
 
   $("#saveWorkout").onclick=()=>{
     const name=$("#wName").value.trim();
     const exercises=$$(".exercise-edit").map(row=>({
       id:row.dataset.id,
+      libraryId:row.dataset.libraryId||null,
       name:$(".eName",row).value.trim(),
       sets:+$(".eSets",row).value||1,
       reps:$(".eReps",row).value.trim()||"8-12",
@@ -231,13 +532,34 @@ function openWorkoutEditor(id){
 }
 
 function exerciseEditorRow(e,i){
-  return `<div class="card exercise-edit" data-id="${e.id}">
-    <div class="form-group"><label>Exercício ${i+1}</label><input class="eName" value="${escapeHtml(e.name)}" placeholder="Nome do exercício"></div>
-    <div class="inline-fields">
-      <div class="form-group"><label>Séries</label><input class="eSets" type="number" min="1" value="${e.sets}"></div>
-      <div class="form-group"><label>Reps</label><input class="eReps" value="${escapeHtml(e.reps)}"></div>
+  return `<div class="card exercise-edit" data-id="${e.id}" data-library-id="${e.libraryId||""}">
+    <div class="row">
+      <div style="min-width:0">
+        <div class="meta exercise-number">Exercício ${i+1}</div>
+        <h3 class="selectedExerciseName" style="margin:4px 0;word-break:break-word">${escapeHtml(e.name||"Nenhum exercício selecionado")}</h3>
+      </div>
+      <button class="small-btn chooseExerciseBtn" type="button">${e.name?"Trocar":"Selecionar"}</button>
     </div>
-    <div class="form-group"><label>Peso sugerido (kg)</label><input class="eWeight" type="number" step="0.5" value="${e.weight||0}"></div>
+
+    <input class="eName" type="hidden" value="${escapeHtml(e.name||"")}">
+
+    <div class="inline-fields" style="margin-top:12px">
+      <div class="form-group">
+        <label>Séries</label>
+        <input class="eSets" type="number" min="1" value="${e.sets||3}">
+      </div>
+      <div class="form-group">
+        <label>Reps</label>
+        <input class="eReps" value="${escapeHtml(e.reps||"8-12")}">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Peso sugerido (kg)</label>
+      <input class="eWeight" type="number" step="0.5" value="${e.weight||0}">
+    </div>
+
+    <button class="danger removeExerciseBtn" type="button">Remover do treino</button>
   </div>`;
 }
 
@@ -281,6 +603,7 @@ function createSessionDraft(workout){
       const prevEx=previous?.exercises.find(x=>x.exerciseId===ex.id);
       return {
         exerciseId:ex.id,
+        libraryId:ex.libraryId||null,
         name:ex.name,
         sets:Array.from({length:ex.sets},(_,i)=>{
           const prevSet=prevEx?.sets?.[i];
@@ -299,6 +622,7 @@ function persistActiveSessionFromUI(){
   if(!state.activeSession) return;
   state.activeSession.exercises=$$(".session-ex").map(exEl=>({
     exerciseId:exEl.dataset.id,
+    libraryId:state.activeSession.exercises.find(x=>x.exerciseId===exEl.dataset.id)?.libraryId || null,
     name:state.activeSession.exercises.find(x=>x.exerciseId===exEl.dataset.id)?.name || "",
     sets:$$(".set-row",exEl).map(r=>({
       weight:+$(".set-weight",r).value||0,
@@ -328,6 +652,7 @@ function openSession(workoutId){
     if(!draftEx){
       draftEx={
         exerciseId:ex.id,
+        libraryId:ex.libraryId||null,
         name:ex.name,
         sets:Array.from({length:ex.sets},()=>({weight:ex.weight||0,reps:parseInt(ex.reps)||0,done:false}))
       };
@@ -346,14 +671,14 @@ function openSession(workoutId){
           <div class="meta">Meta: ${ex.sets} × ${escapeHtml(ex.reps)}</div>
         </div>
         ${(()=>{
-          const pr=getExercisePR(ex.name);
+          const pr=getExercisePR(ex.name,null,ex.libraryId||null);
           return pr
             ? `<span class="pill pr-pill">PR ${pr.weight} kg × ${pr.reps}</span>`
             : `<span class="pill">${draftEx.sets.some(s=>s.done)?"Em andamento":"Sem PR ainda"}</span>`;
         })()}
       </div>
       ${(()=>{
-        const pr=getExercisePR(ex.name);
+        const pr=getExercisePR(ex.name,null,ex.libraryId||null);
         return pr ? `<div class="meta" style="margin-top:6px">Melhor carga registrada: <b>${pr.weight} kg × ${pr.reps} reps</b> · ${fmtDate(pr.date)}</div>` : "";
       })()}
       <div class="meta" style="margin:8px 0">Série · Peso (kg) · Reps</div>
@@ -419,7 +744,8 @@ function openSession(workoutId){
       const exerciseName=workout.exercises.find(e=>e.id===exEl.dataset.id)?.name || "";
       const weight=+$(".set-weight",row).value||0;
       const reps=+$(".set-reps",row).value||0;
-      const result=compareSetToPR(exerciseName,weight,reps);
+      const libraryId=workout.exercises.find(e=>e.id===exEl.dataset.id)?.libraryId || null;
+      const result=compareSetToPR(exerciseName,weight,reps,libraryId);
 
       if(result.status==="new"){
         b.classList.add("pr-new");
@@ -489,27 +815,28 @@ function normalizeExerciseName(name=""){
     .replace(/\s+/g," ");
 }
 
-function getExercisePR(name, excludeSessionId=null){
+function getExercisePR(name, excludeSessionId=null, libraryId=null){
   const target=normalizeExerciseName(name);
   let best=null;
 
   state.sessions.forEach(session=>{
     if(excludeSessionId && session.id===excludeSessionId) return;
 
-    session.exercises.forEach(ex=>{
-      if(normalizeExerciseName(ex.name)!==target) return;
+    (session.exercises||[]).forEach(ex=>{
+      const same = libraryId && ex.libraryId
+        ? ex.libraryId===libraryId
+        : normalizeExerciseName(ex.name)===target;
 
-      ex.sets.forEach(set=>{
+      if(!same) return;
+
+      (ex.sets||[]).forEach(set=>{
         if(!set.done) return;
+
         const weight=+set.weight||0;
         const reps=+set.reps||0;
         if(weight<=0 || reps<=0) return;
 
-        if(
-          !best ||
-          weight>best.weight ||
-          (weight===best.weight && reps>best.reps)
-        ){
+        if(!best || weight>best.weight || (weight===best.weight && reps>best.reps)){
           best={
             weight,
             reps,
@@ -525,18 +852,27 @@ function getExercisePR(name, excludeSessionId=null){
 }
 
 function getAllExercisePRs(){
-  const names=new Map();
+  const identities=new Map();
 
   state.sessions.forEach(session=>{
-    session.exercises.forEach(ex=>{
-      const key=normalizeExerciseName(ex.name);
-      if(key && !names.has(key)) names.set(key,ex.name);
+    (session.exercises||[]).forEach(ex=>{
+      const key=ex.libraryId || normalizeExerciseName(ex.name);
+      if(key && !identities.has(key)){
+        identities.set(key,{
+          name:ex.name,
+          libraryId:ex.libraryId||null
+        });
+      }
     });
   });
 
-  return [...names.values()]
-    .map(name=>({name,pr:getExercisePR(name)}))
-    .filter(x=>x.pr)
+  return [...identities.values()]
+    .map(item=>({
+      name:item.name,
+      libraryId:item.libraryId,
+      pr:getExercisePR(item.name,null,item.libraryId)
+    }))
+    .filter(item=>item.pr)
     .sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
 }
 
@@ -547,8 +883,8 @@ function isSetNewPR(exerciseName, weight, reps){
 }
 
 
-function compareSetToPR(exerciseName, weight, reps){
-  const current=getExercisePR(exerciseName);
+function compareSetToPR(exerciseName, weight, reps, libraryId=null){
+  const current=getExercisePR(exerciseName,null,libraryId);
   weight=+weight||0;
   reps=+reps||0;
 
@@ -1011,6 +1347,7 @@ function buildBackup(){
       bodyAssessments: state.body.length
     },
     data: {
+      exerciseLibrary: state.exerciseLibrary,
       workouts: state.workouts,
       sessions: state.sessions,
       body: state.body,
@@ -1036,6 +1373,7 @@ function normalizeImportedData(parsed){
   const data=parsed?.data && parsed?.app==="Gym Pocket" ? parsed.data : parsed;
   if(!data || typeof data!=="object") throw new Error("Formato inválido");
   return {
+    exerciseLibrary:Array.isArray(data.exerciseLibrary)?data.exerciseLibrary:[],
     workouts:Array.isArray(data.workouts)?data.workouts:[],
     sessions:Array.isArray(data.sessions)?data.sessions:[],
     body:Array.isArray(data.body)?data.body:[],
@@ -1056,6 +1394,7 @@ function mergeById(current,incoming){
 
 function mergeImportedData(incoming){
   state={
+    exerciseLibrary:mergeById(state.exerciseLibrary,incoming.exerciseLibrary),
     workouts:mergeById(state.workouts,incoming.workouts),
     sessions:mergeById(state.sessions,incoming.sessions),
     body:mergeById(state.body,incoming.body),
@@ -1066,6 +1405,7 @@ function mergeImportedData(incoming){
 
 function replaceImportedData(incoming){
   state={
+    exerciseLibrary:incoming.exerciseLibrary,
     workouts:incoming.workouts,
     sessions:incoming.sessions,
     body:incoming.body,
@@ -1144,7 +1484,7 @@ function resetWorkoutData(){
 function resetAllData(){
   if(!confirm("RESETAR TUDO? Isso apagará treinos, histórico, avaliações e configurações salvas neste aparelho.")) return;
   if(!confirm("Última confirmação: deseja realmente apagar todos os dados do Gym Pocket?")) return;
-  state={workouts:[],sessions:[],body:[],activeSession:null,settings:{...defaultData.settings}};
+  state={exerciseLibrary:[],workouts:[],sessions:[],body:[],activeSession:null,settings:{...defaultData.settings}};
   save();
   render();
   toast("Gym Pocket resetado.");
