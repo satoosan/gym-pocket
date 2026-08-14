@@ -195,3 +195,20 @@ hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
 .exercise-pick-item div { display:grid; gap:4px; }
 .exercise-pick-item span { color:var(--muted); font-size:12px; }
 .exercise-pick-item strong { color:var(--accent); font-size:22px; }
+
+.picker-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(11,13,16,.96);
+  backdrop-filter: blur(8px);
+  padding: 18px;
+  overflow-y: auto;
+  border-radius: 24px;
+}
+.picker-sheet {
+  min-height: 100%;
+}
+#modalForm {
+  position: relative;
+}

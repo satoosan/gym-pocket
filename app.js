@@ -348,6 +348,39 @@ function openLibraryExerciseEditor(id=null, afterSave=null){
 }
 
 function openExercisePicker(onSelect){
+  const modalForm=$("#modalForm");
+  if(!modalForm) return;
+
+  let overlay=$("#exercisePickerOverlay");
+  if(overlay) overlay.remove();
+
+  overlay=document.createElement("div");
+  overlay.id="exercisePickerOverlay";
+  overlay.className="picker-overlay";
+  overlay.innerHTML=`
+    <div class="picker-sheet">
+      <div class="modal-head">
+        <h2>Selecionar exercício</h2>
+        <button class="icon-btn" type="button" id="closeExercisePicker">×</button>
+      </div>
+
+      <div class="form-group">
+        <label>Buscar na biblioteca</label>
+        <input id="exercisePickerSearch" placeholder="Digite o nome do exercício..." autocomplete="off">
+      </div>
+
+      <div id="exercisePickerList"></div>
+
+      <hr>
+
+      <button class="secondary" type="button" id="createExerciseFromPicker">＋ CADASTRAR NOVO EXERCÍCIO</button>
+    </div>
+  `;
+
+  modalForm.appendChild(overlay);
+
+  const closePicker=()=>overlay.remove();
+
   const draw=(filter="")=>{
     const normalized=normalizeExerciseName(filter);
     const items=[...state.exerciseLibrary]
@@ -368,40 +401,82 @@ function openExercisePicker(onSelect){
           <p>Nenhum exercício encontrado.</p>
         </div>`;
 
-    $$("[data-pick-exercise]").forEach(btn=>{
+    $$("[data-pick-exercise]",overlay).forEach(btn=>{
       btn.onclick=()=>{
         const selected=state.exerciseLibrary.find(e=>e.id===btn.dataset.pickExercise);
         if(!selected) return;
-        closeModal();
+        closePicker();
         onSelect(selected);
       };
     });
   };
 
-  openModal("Selecionar exercício", `
-    <div class="form-group">
-      <label>Buscar na biblioteca</label>
-      <input id="exercisePickerSearch" placeholder="Digite o nome do exercício..." autocomplete="off">
-    </div>
-
-    <div id="exercisePickerList"></div>
-
-    <hr>
-
-    <button class="secondary" type="button" id="createExerciseFromPicker">＋ CADASTRAR NOVO EXERCÍCIO</button>
-  `);
-
+  $("#closeExercisePicker").onclick=closePicker;
   $("#exercisePickerSearch").oninput=e=>draw(e.target.value);
+
   $("#createExerciseFromPicker").onclick=()=>{
-    closeModal();
-    openLibraryExerciseEditor(null, selected=>{
-      onSelect(selected);
-    });
+    // Cria um mini formulário dentro da própria camada, sem fechar o editor do treino.
+    overlay.innerHTML=`
+      <div class="picker-sheet">
+        <div class="modal-head">
+          <h2>Novo exercício</h2>
+          <button class="icon-btn" type="button" id="backToExercisePicker">←</button>
+        </div>
+
+        <div id="pickerLibraryValidation" class="validation-box" hidden></div>
+
+        <div class="form-group">
+          <label>Nome do exercício</label>
+          <input id="pickerNewExerciseName" placeholder="Ex.: Supino reto máquina">
+        </div>
+
+        <div class="form-group">
+          <label>Grupo muscular</label>
+          <input id="pickerNewExerciseMuscle" placeholder="Ex.: Peito">
+        </div>
+
+        <button class="primary" type="button" id="savePickerExercise">Salvar e selecionar</button>
+      </div>
+    `;
+
+    $("#backToExercisePicker").onclick=()=>{
+      overlay.remove();
+      openExercisePicker(onSelect);
+    };
+
+    $("#savePickerExercise").onclick=()=>{
+      const name=$("#pickerNewExerciseName").value.trim();
+      const muscle=$("#pickerNewExerciseMuscle").value.trim();
+      const validation=$("#pickerLibraryValidation");
+
+      const errors=[];
+      if(!name) errors.push("Informe o nome do exercício.");
+
+      const duplicate=state.exerciseLibrary.find(e=>
+        normalizeExerciseName(e.name)===normalizeExerciseName(name)
+      );
+
+      if(duplicate) errors.push("Já existe um exercício com esse nome.");
+
+      if(errors.length){
+        validation.hidden=false;
+        validation.innerHTML=`<b>Não foi possível salvar:</b><ul>${errors.map(e=>`<li>${escapeHtml(e)}</li>`).join("")}</ul>`;
+        return;
+      }
+
+      const saved={id:crypto.randomUUID(),name,muscle};
+      state.exerciseLibrary.push(saved);
+      save();
+
+      closePicker();
+      onSelect(saved);
+      toast("Exercício salvo e selecionado.");
+    };
   };
 
   draw();
+  setTimeout(()=>$("#exercisePickerSearch")?.focus(),50);
 }
-
 
 function renderWorkouts(app){
   app.innerHTML=`

@@ -131,3 +131,10 @@ A biblioteca permite:
 Ao criar uma ficha, em vez de digitar manualmente o exercício, o usuário abre um seletor com campo de busca e escolhe um item da biblioteca.
 
 Cada exercício possui um identificador interno (`libraryId`). Dessa forma, históricos e PRs conseguem reconhecer o mesmo exercício mesmo quando ele aparece em diferentes fichas.
+
+
+## Seletor de exercícios sem perder a ficha
+
+Ao selecionar ou cadastrar um exercício dentro da edição de uma ficha, o Gym Pocket utiliza uma camada interna sobre o modal atual.
+
+Isso evita que o editor do treino seja fechado ao escolher um exercício. Depois da seleção, o usuário retorna ao mesmo ponto da ficha que estava editando.
