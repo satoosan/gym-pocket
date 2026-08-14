@@ -151,3 +151,10 @@ hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
 .validation-box b { color: #ff6b6b; }
 .validation-box ul { margin: 7px 0 0 18px; padding: 0; }
 .validation-box li + li { margin-top: 4px; }
+
+.pr-pill {
+  background: rgba(255,209,102,.12);
+  color: var(--warning);
+  border: 1px solid rgba(255,209,102,.18);
+  white-space: nowrap;
+}

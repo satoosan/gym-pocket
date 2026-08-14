@@ -81,3 +81,24 @@ Ao criar ou editar um treino, o Gym Pocket exige:
 - Pelo menos um exercício válido
 
 Caso algum campo obrigatório esteja faltando, uma mensagem em vermelho é exibida no topo do formulário antes de permitir o salvamento.
+
+
+## Recordes pessoais por exercício
+
+O Gym Pocket identifica exercícios recorrentes pelo nome, inclusive quando aparecem em fichas diferentes.
+
+Para cada exercício, o aplicativo registra o melhor desempenho concluído utilizando:
+
+1. Maior carga registrada
+2. Em caso de empate na carga, maior número de repetições
+
+Exemplo:
+
+```text
+Supino reto
+PR: 80 kg × 8 reps
+```
+
+Os PRs aparecem durante a execução do treino e também na área de Progresso.
+
+> O volume total do treino continua disponível como estatística e é calculado por `peso × repetições` em todas as séries concluídas.

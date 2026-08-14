@@ -345,8 +345,17 @@ function openSession(workoutId){
           <h3>${escapeHtml(ex.name)}</h3>
           <div class="meta">Meta: ${ex.sets} × ${escapeHtml(ex.reps)}</div>
         </div>
-        <span class="pill">${draftEx.sets.some(s=>s.done)?"Em andamento":"Primeira vez"}</span>
+        ${(()=>{
+          const pr=getExercisePR(ex.name);
+          return pr
+            ? `<span class="pill pr-pill">PR ${pr.weight} kg × ${pr.reps}</span>`
+            : `<span class="pill">${draftEx.sets.some(s=>s.done)?"Em andamento":"Sem PR ainda"}</span>`;
+        })()}
       </div>
+      ${(()=>{
+        const pr=getExercisePR(ex.name);
+        return pr ? `<div class="meta" style="margin-top:6px">Melhor carga registrada: <b>${pr.weight} kg × ${pr.reps} reps</b> · ${fmtDate(pr.date)}</div>` : "";
+      })()}
       <div class="meta" style="margin:8px 0">Série · Peso (kg) · Reps</div>
       ${draftEx.sets.map((set,i)=>`
         <div class="set-row">
@@ -443,18 +452,97 @@ function renderHistory(app){
   app.innerHTML=`<section class="card">
     ${sessions.length ? sessions.map(s=>`
       <div class="list-item">
-        <div><b>${escapeHtml(s.workoutName)}</b><div class="meta">${fmtDate(s.date)} · ${s.exercises.length} exercícios · ${sessionVolume(s).toFixed(0)} kg de volume</div></div>
+        <div><b>${escapeHtml(s.workoutName)}</b><div class="meta">${fmtDate(s.date)} · ${s.exercises.length} exercícios · Volume total: ${sessionVolume(s).toFixed(0)} kg</div></div>
         <button class="small-btn" data-session="${s.id}">Ver</button>
       </div>`).join("") : $("#emptyTemplate").innerHTML}
   </section>`;
   $$("[data-session]").forEach(b=>b.onclick=()=>showSession(b.dataset.session));
 }
-function sessionVolume(s){ return s.exercises.flatMap(e=>e.sets).reduce((sum,x)=>sum+(x.done?x.weight*x.reps:0),0); }
+
+function normalizeExerciseName(name=""){
+  return String(name)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g," ");
+}
+
+function getExercisePR(name, excludeSessionId=null){
+  const target=normalizeExerciseName(name);
+  let best=null;
+
+  state.sessions.forEach(session=>{
+    if(excludeSessionId && session.id===excludeSessionId) return;
+
+    session.exercises.forEach(ex=>{
+      if(normalizeExerciseName(ex.name)!==target) return;
+
+      ex.sets.forEach(set=>{
+        if(!set.done) return;
+        const weight=+set.weight||0;
+        const reps=+set.reps||0;
+        if(weight<=0 || reps<=0) return;
+
+        if(
+          !best ||
+          weight>best.weight ||
+          (weight===best.weight && reps>best.reps)
+        ){
+          best={
+            weight,
+            reps,
+            date:session.date,
+            workoutName:session.workoutName
+          };
+        }
+      });
+    });
+  });
+
+  return best;
+}
+
+function getAllExercisePRs(){
+  const names=new Map();
+
+  state.sessions.forEach(session=>{
+    session.exercises.forEach(ex=>{
+      const key=normalizeExerciseName(ex.name);
+      if(key && !names.has(key)) names.set(key,ex.name);
+    });
+  });
+
+  return [...names.values()]
+    .map(name=>({name,pr:getExercisePR(name)}))
+    .filter(x=>x.pr)
+    .sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
+}
+
+function isSetNewPR(exerciseName, weight, reps){
+  const current=getExercisePR(exerciseName);
+  if(!current) return weight>0 && reps>0;
+  return weight>current.weight || (weight===current.weight && reps>current.reps);
+}
+
+function sessionVolume(s){
+  return s.exercises
+    .flatMap(e=>e.sets)
+    .reduce((sum,x)=>sum+(x.done?(+x.weight||0)*(+x.reps||0):0),0);
+}
 function showSession(id){
   const s=state.sessions.find(x=>x.id===id); if(!s)return;
-  openModal(`${s.workoutName} · ${fmtDate(s.date)}`, s.exercises.map(e=>`
-    <div class="card"><h3>${escapeHtml(e.name)}</h3>${e.sets.map((set,i)=>`<div class="list-item"><span>Série ${i+1}</span><b>${set.weight} kg × ${set.reps} ${set.done?"✓":""}</b></div>`).join("")}</div>
-  `).join(""), `<button class="danger" id="deleteSession" type="button">Excluir registro</button>`);
+  openModal(`${s.workoutName} · ${fmtDate(s.date)}`, s.exercises.map(e=>{
+    const pr=getExercisePR(e.name);
+    return `
+      <div class="card">
+        <div class="row">
+          <h3 style="margin:0">${escapeHtml(e.name)}</h3>
+          ${pr?`<span class="pill pr-pill">PR ${pr.weight} kg × ${pr.reps}</span>`:""}
+        </div>
+        ${e.sets.map((set,i)=>`<div class="list-item"><span>Série ${i+1}</span><b>${set.weight} kg × ${set.reps} ${set.done?"✓":""}</b></div>`).join("")}
+      </div>`;
+  }).join(""), `<button class="danger" id="deleteSession" type="button">Excluir registro</button>`);
   $("#deleteSession").onclick=()=>{ state.sessions=state.sessions.filter(x=>x.id!==id); save(); closeModal(); render(); };
 }
 
@@ -668,7 +756,29 @@ function renderProgress(app){
     <div class="section-title"><h2>Peso</h2></div>
     <section class="card"><canvas id="weightChart" width="440" height="220"></canvas></section>
     <div class="section-title"><h2>Volume dos treinos</h2></div>
-    <section class="card"><canvas id="volumeChart" width="440" height="220"></canvas></section>
+    <section class="card">
+      <canvas id="volumeChart" width="440" height="220"></canvas>
+      <p class="meta" style="margin:10px 2px 0">Volume = peso × repetições de todas as séries concluídas. Ele não representa a carga da barra, e sim o trabalho total registrado.</p>
+    </section>
+
+    <div class="section-title"><h2>PRs por exercício</h2></div>
+    <section class="card">
+      ${(()=>{
+        const prs=getAllExercisePRs();
+        return prs.length
+          ? prs.map(item=>`
+              <div class="list-item">
+                <div>
+                  <b>${escapeHtml(item.name)}</b>
+                  <div class="meta">${fmtDate(item.pr.date)} · ${escapeHtml(item.pr.workoutName||"Treino")}</div>
+                </div>
+                <span class="pill pr-pill">${item.pr.weight} kg × ${item.pr.reps}</span>
+              </div>
+            `).join("")
+          : `<div class="empty-state" style="padding:24px 10px"><div class="empty-icon">🏆</div><h3>Sem PRs ainda</h3><p>Finalize séries com carga e repetições para começar a registrar seus recordes.</p></div>`;
+      })()}
+    </section>
+
     <section class="card">
       <h3>Backup e restauração</h3>
       <p class="muted">O backup inclui treinos, exercícios, histórico, cargas, avaliações corporais e configurações.</p>
