@@ -44,3 +44,23 @@ Pode ser hospedado gratuitamente no GitHub Pages, Cloudflare Pages ou Vercel.
 ## Importante
 
 Os dados ficam no `localStorage` do navegador. Use **Progresso > Exportar JSON** para manter backups.
+
+
+## Backup completo
+
+O Gym Pocket permite exportar um arquivo `.json` contendo:
+
+- Fichas de treino
+- Exercícios
+- Séries e cargas
+- Histórico de sessões
+- Avaliações corporais e medidas
+- Configurações do aplicativo
+
+Na importação, é possível escolher entre **mesclar** o backup com os dados atuais ou **substituir** completamente os dados existentes.
+
+Também existem controles independentes para resetar:
+
+- Progresso e histórico
+- Fichas de treino
+- Todos os dados do aplicativo

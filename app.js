@@ -483,14 +483,32 @@ function renderProgress(app){
     <div class="section-title"><h2>Volume dos treinos</h2></div>
     <section class="card"><canvas id="volumeChart" width="440" height="220"></canvas></section>
     <section class="card">
-      <h3>Backup</h3><p class="muted">Exporte seus dados para não depender somente do armazenamento do navegador.</p>
-      <div class="stack"><button class="secondary" id="exportData">Exportar JSON</button><button class="secondary" id="importData">Importar JSON</button><input id="importFile" type="file" accept="application/json" hidden></div>
+      <h3>Backup e restauração</h3>
+      <p class="muted">O backup inclui treinos, exercícios, histórico, cargas, avaliações corporais e configurações.</p>
+      <div class="stack">
+        <button class="secondary" id="exportData">Exportar backup completo (.json)</button>
+        <button class="secondary" id="importData">Importar backup (.json)</button>
+        <input id="importFile" type="file" accept="application/json,.json" hidden>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Zona de reset</h3>
+      <p class="muted">Escolha exatamente o que deseja apagar. Cada ação pede confirmação.</p>
+      <div class="stack">
+        <button class="danger" id="resetProgress">Resetar progresso e histórico</button>
+        <button class="danger" id="resetWorkouts">Resetar fichas de treino</button>
+        <button class="danger" id="resetAll">Resetar tudo</button>
+      </div>
     </section>`;
   drawChart($("#weightChart"), body.map(x=>({label:x.date.slice(5),fullDate:x.date,value:x.weight})), {label:"Peso",suffix:" kg"});
   drawChart($("#volumeChart"), [...state.sessions].sort((a,b)=>a.date.localeCompare(b.date)).map(x=>({label:x.date.slice(5),fullDate:x.date,value:Math.round(sessionVolume(x))})).slice(-12), {label:"Volume",suffix:" kg"});
   $("#exportData").onclick=exportData;
   $("#importData").onclick=()=>$("#importFile").click();
   $("#importFile").onchange=importData;
+  $("#resetProgress").onclick=resetProgressData;
+  $("#resetWorkouts").onclick=resetWorkoutData;
+  $("#resetAll").onclick=resetAllData;
 }
 
 function drawChart(canvas, pts, options={}){
@@ -589,15 +607,148 @@ function roundRect(ctx,x,y,w,h,r){
   ctx.arcTo(x,y,x+w,y,r);
   ctx.closePath();
 }
-function exportData(){
-  const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`gym-pocket-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(a.href);
+function buildBackup(){
+  return {
+    app: "Gym Pocket",
+    backupVersion: 2,
+    exportedAt: new Date().toISOString(),
+    summary: {
+      workouts: state.workouts.length,
+      sessions: state.sessions.length,
+      bodyAssessments: state.body.length
+    },
+    data: {
+      workouts: state.workouts,
+      sessions: state.sessions,
+      body: state.body,
+      settings: state.settings
+    }
+  };
 }
+
+function exportData(){
+  const backup=buildBackup();
+  const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=`gym-pocket-backup-completo-${todayISO()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("Backup completo exportado.");
+}
+
+function normalizeImportedData(parsed){
+  // Aceita backups novos e também exports antigos do Gym Pocket.
+  const data=parsed?.data && parsed?.app==="Gym Pocket" ? parsed.data : parsed;
+  if(!data || typeof data!=="object") throw new Error("Formato inválido");
+  return {
+    workouts:Array.isArray(data.workouts)?data.workouts:[],
+    sessions:Array.isArray(data.sessions)?data.sessions:[],
+    body:Array.isArray(data.body)?data.body:[],
+    settings:data.settings && typeof data.settings==="object" ? data.settings : {}
+  };
+}
+
+function mergeById(current,incoming){
+  const map=new Map();
+  [...current,...incoming].forEach(item=>{
+    if(!item || typeof item!=="object") return;
+    const key=item.id || crypto.randomUUID();
+    map.set(key,{...item,id:key});
+  });
+  return [...map.values()];
+}
+
+function mergeImportedData(incoming){
+  state={
+    workouts:mergeById(state.workouts,incoming.workouts),
+    sessions:mergeById(state.sessions,incoming.sessions),
+    body:mergeById(state.body,incoming.body),
+    settings:{...state.settings,...incoming.settings}
+  };
+}
+
+function replaceImportedData(incoming){
+  state={
+    workouts:incoming.workouts,
+    sessions:incoming.sessions,
+    body:incoming.body,
+    settings:{...defaultData.settings,...incoming.settings}
+  };
+}
+
 function importData(e){
-  const file=e.target.files[0]; if(!file)return;
+  const file=e.target.files[0];
+  if(!file)return;
   const reader=new FileReader();
-  reader.onload=()=>{ try{ state=JSON.parse(reader.result); save(); render(); toast("Backup importado."); }catch{ toast("Arquivo inválido."); } };
+  reader.onload=()=>{
+    try{
+      const parsed=JSON.parse(reader.result);
+      const incoming=normalizeImportedData(parsed);
+
+      openModal("Importar backup", `
+        <div class="card">
+          <h3>Backup encontrado</h3>
+          <div class="list-item"><span>Treinos</span><b>${incoming.workouts.length}</b></div>
+          <div class="list-item"><span>Registros no histórico</span><b>${incoming.sessions.length}</b></div>
+          <div class="list-item"><span>Avaliações corporais</span><b>${incoming.body.length}</b></div>
+        </div>
+        <p class="muted"><b>Mesclar</b> mantém seus dados atuais e adiciona/atualiza os dados do backup.</p>
+        <p class="muted"><b>Substituir</b> apaga os dados atuais e deixa somente o conteúdo do backup.</p>
+      `, `
+        <button class="primary" id="mergeBackup" type="button">Mesclar com dados atuais</button>
+        <button class="danger" id="replaceBackup" type="button">Substituir dados atuais</button>
+      `);
+
+      $("#mergeBackup").onclick=()=>{
+        mergeImportedData(incoming);
+        save();
+        closeModal();
+        render();
+        toast("Backup mesclado com sucesso.");
+      };
+
+      $("#replaceBackup").onclick=()=>{
+        if(!confirm("Isso vai substituir os dados atuais do Gym Pocket. Deseja continuar?")) return;
+        replaceImportedData(incoming);
+        save();
+        closeModal();
+        render();
+        toast("Dados substituídos pelo backup.");
+      };
+    }catch{
+      toast("Arquivo de backup inválido.");
+    }finally{
+      e.target.value="";
+    }
+  };
   reader.readAsText(file);
+}
+
+function resetProgressData(){
+  if(!confirm("Resetar todo o progresso? Isso apagará o histórico de treinos e todas as avaliações corporais, mas manterá suas fichas de treino.")) return;
+  state.sessions=[];
+  state.body=[];
+  save();
+  render();
+  toast("Progresso e histórico resetados.");
+}
+
+function resetWorkoutData(){
+  if(!confirm("Resetar todas as fichas de treino? O histórico e as avaliações corporais serão mantidos.")) return;
+  state.workouts=[];
+  save();
+  render();
+  toast("Fichas de treino resetadas.");
+}
+
+function resetAllData(){
+  if(!confirm("RESETAR TUDO? Isso apagará treinos, histórico, avaliações e configurações salvas neste aparelho.")) return;
+  if(!confirm("Última confirmação: deseja realmente apagar todos os dados do Gym Pocket?")) return;
+  state={workouts:[],sessions:[],body:[],settings:{...defaultData.settings}};
+  save();
+  render();
+  toast("Gym Pocket resetado.");
 }
 function openModal(title,body,actions=""){
   $("#modalTitle").textContent=title; $("#modalBody").innerHTML=body; $("#modalActions").innerHTML=actions; $("#modal").showModal();
