@@ -71,3 +71,13 @@ Também existem controles independentes para resetar:
 Durante uma sessão, os valores de peso, repetições e o estado de conclusão de cada série são salvos automaticamente. Assim, é possível fechar a tela do treino e continuar depois sem perder os checks.
 
 A tela inicial também respeita exatamente os dias da semana configurados para cada ficha e suporta múltiplos treinos agendados para o mesmo dia.
+
+
+## Validação de fichas
+
+Ao criar ou editar um treino, o Gym Pocket exige:
+
+- Nome do treino
+- Pelo menos um exercício válido
+
+Caso algum campo obrigatório esteja faltando, uma mensagem em vermelho é exibida no topo do formulário antes de permitir o salvamento.

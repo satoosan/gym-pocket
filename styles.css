@@ -137,3 +137,17 @@ hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
 .timer-done #restTime { color: var(--accent); }
 
 .day.today { outline: 2px solid rgba(181,243,74,.35); outline-offset: 2px; }
+
+.validation-box {
+  margin-bottom: 14px;
+  padding: 13px 14px;
+  border-radius: 14px;
+  background: rgba(255,107,107,.10);
+  border: 1px solid rgba(255,107,107,.35);
+  color: #ff8d8d;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.validation-box b { color: #ff6b6b; }
+.validation-box ul { margin: 7px 0 0 18px; padding: 0; }
+.validation-box li + li { margin-top: 4px; }

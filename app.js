@@ -169,6 +169,7 @@ function renderWorkouts(app){
 function openWorkoutEditor(id){
   const workout = id ? state.workouts.find(w=>w.id===id) : {id:crypto.randomUUID(),name:"",days:[],exercises:[]};
   openModal(id ? "Editar treino" : "Novo treino", `
+    <div id="workoutValidation" class="validation-box" hidden></div>
     <div class="form-group"><label>Nome</label><input id="wName" value="${escapeHtml(workout.name)}" placeholder="Ex.: Pull, Pernas, Full Body"></div>
     <div class="form-group"><label>Dias da semana</label>
       <div class="grid-2">${["Seg","Ter","Qua","Qui","Sex","Sab","Dom"].map(d=>`
@@ -188,9 +189,15 @@ function openWorkoutEditor(id){
   $("#addExercise").onclick=()=>{
     $("#exerciseEditor").insertAdjacentHTML("beforeend", exerciseEditorRow({id:crypto.randomUUID(),name:"",sets:3,reps:"8-12",weight:0}, $("#exerciseEditor").children.length));
   };
+  const clearWorkoutValidation=()=>{
+    const v=$("#workoutValidation");
+    if(v){ v.hidden=true; v.innerHTML=""; }
+  };
+  $("#wName").addEventListener("input",clearWorkoutValidation);
+  $("#exerciseEditor").addEventListener("input",clearWorkoutValidation);
+
   $("#saveWorkout").onclick=()=>{
     const name=$("#wName").value.trim();
-    if(!name) return toast("Dê um nome ao treino.");
     const exercises=$$(".exercise-edit").map(row=>({
       id:row.dataset.id,
       name:$(".eName",row).value.trim(),
@@ -198,6 +205,22 @@ function openWorkoutEditor(id){
       reps:$(".eReps",row).value.trim()||"8-12",
       weight:+$(".eWeight",row).value||0
     })).filter(e=>e.name);
+
+    const errors=[];
+    if(!name) errors.push("Informe o nome do treino.");
+    if(exercises.length<1) errors.push("Adicione pelo menos um exercício ao treino.");
+
+    const validation=$("#workoutValidation");
+    if(errors.length){
+      validation.hidden=false;
+      validation.innerHTML=`<b>Não foi possível salvar:</b><ul>${errors.map(e=>`<li>${escapeHtml(e)}</li>`).join("")}</ul>`;
+      validation.scrollIntoView({behavior:"smooth",block:"start"});
+      return;
+    }
+
+    validation.hidden=true;
+    validation.innerHTML="";
+
     const next={...workout,name,days:$$(".dayCheck:checked").map(x=>x.value),exercises};
     if(id) state.workouts=state.workouts.map(w=>w.id===id?next:w); else state.workouts.push(next);
     save(); closeModal(); currentView="workouts"; render(); toast("Treino salvo.");
