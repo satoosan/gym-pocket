@@ -138,3 +138,10 @@ Cada exercício possui um identificador interno (`libraryId`). Dessa forma, hist
 Ao selecionar ou cadastrar um exercício dentro da edição de uma ficha, o Gym Pocket utiliza uma camada interna sobre o modal atual.
 
 Isso evita que o editor do treino seja fechado ao escolher um exercício. Depois da seleção, o usuário retorna ao mesmo ponto da ficha que estava editando.
+
+
+## Continuidade ao adicionar exercícios
+
+Ao adicionar ou selecionar um novo exercício dentro de uma ficha, o editor mantém o usuário no card recém-criado.
+
+Depois da seleção, o Gym Pocket rola suavemente até o exercício e posiciona o foco nos campos de séries/repetições, evitando voltar ao topo do formulário.

@@ -351,6 +351,9 @@ function openExercisePicker(onSelect){
   const modalForm=$("#modalForm");
   if(!modalForm) return;
 
+  const modalEl=$("#modal");
+  const savedScrollTop=modalEl ? modalEl.scrollTop : 0;
+
   let overlay=$("#exercisePickerOverlay");
   if(overlay) overlay.remove();
 
@@ -379,7 +382,10 @@ function openExercisePicker(onSelect){
 
   modalForm.appendChild(overlay);
 
-  const closePicker=()=>overlay.remove();
+  const closePicker=()=>{
+    overlay.remove();
+    if(modalEl) modalEl.scrollTop=savedScrollTop;
+  };
 
   const draw=(filter="")=>{
     const normalized=normalizeExerciseName(filter);
@@ -534,6 +540,7 @@ function openWorkoutEditor(id){
             $(".selectedExerciseName",row).textContent=selected.name;
             choose.textContent="Trocar";
             clearWorkoutValidation();
+            focusExerciseRow(row);
           });
         };
       }
@@ -562,6 +569,19 @@ function openWorkoutEditor(id){
       }, $("#exerciseEditor").children.length)
     );
     bindExerciseEditorEvents();
+
+    const rows=$$(".exercise-edit");
+    const newRow=rows[rows.length-1];
+
+    if(newRow){
+      // Mantém o usuário no novo card e já abre o seletor.
+      focusExerciseRow(newRow);
+
+      setTimeout(()=>{
+        const choose=$(".chooseExerciseBtn",newRow);
+        if(choose) choose.click();
+      },180);
+    }
   };
   const clearWorkoutValidation=()=>{
     const v=$("#workoutValidation");
@@ -1564,6 +1584,21 @@ function resetAllData(){
   render();
   toast("Gym Pocket resetado.");
 }
+
+function focusExerciseRow(row){
+  if(!row) return;
+  requestAnimationFrame(()=>{
+    row.scrollIntoView({behavior:"smooth",block:"center"});
+    const firstInput=$(".eSets",row) || $(".eReps",row) || $(".eWeight",row);
+    if(firstInput){
+      setTimeout(()=>{
+        firstInput.focus({preventScroll:true});
+        if(firstInput.select) firstInput.select();
+      },250);
+    }
+  });
+}
+
 function openModal(title,body,actions=""){
   $("#modalTitle").textContent=title; $("#modalBody").innerHTML=body; $("#modalActions").innerHTML=actions; $("#modal").showModal();
 }

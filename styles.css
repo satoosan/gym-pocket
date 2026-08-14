@@ -212,3 +212,7 @@ hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
 #modalForm {
   position: relative;
 }
+
+.exercise-edit:focus-within {
+  border-color: rgba(181,243,74,.35);
+}
