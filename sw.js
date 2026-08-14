@@ -1,9 +1,9 @@
-const CACHE = "gym-pocket-v17";
+const CACHE = "gym-pocket-v18";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=12_1",
-  "./app.js?v=12_1",
+  "./styles.css?v=13",
+  "./app.js?v=13",
   "./manifest.webmanifest",
   "./icon.svg"
 ];

@@ -143,6 +143,33 @@ function getWeekBounds(){
   return {start,end};
 }
 
+
+function buildWorkoutShareText(workout){
+  const lines=[
+    `🏋️ ${workout.name}`,
+    "",
+    `📅 Treino: ${workout.days?.join(", ")||"Sem dia definido"}`,
+    ""
+  ];
+
+  (workout.exercises||[]).forEach((ex,index)=>{
+    const weight=(+ex.weight||0)>0 ? `${ex.weight} kg` : "peso livre";
+    lines.push(`${index+1}. ${ex.name}`);
+    lines.push(`   ${ex.sets} série${ex.sets>1?"s":""} × ${ex.reps} reps · ${weight}`);
+    if(ex.notes) lines.push(`   📝 ${ex.notes}`);
+    lines.push("");
+  });
+
+  lines.push("💪 Gym Pocket");
+  return lines.join("\n");
+}
+
+function shareWorkoutOnWhatsApp(workout){
+  const text=buildWorkoutShareText(workout);
+  const url=`https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(url,"_blank","noopener,noreferrer");
+}
+
 function renderHome(app){
   const lastBody=[...state.body].sort((a,b)=>b.date.localeCompare(a.date))[0];
   const month=new Date().toISOString().slice(0,7);
@@ -183,7 +210,10 @@ function renderHome(app){
               <p class="muted">${w.exercises.length} exercícios · ${todayName}</p>
             </div>
           </div>
-          <button class="primary" data-start-workout="${w.id}">INICIAR TREINO</button>
+          <div class="stack">
+            <button class="primary" data-start-workout="${w.id}">INICIAR TREINO</button>
+            <button class="secondary" data-share-workout="${w.id}">↗ COMPARTILHAR NO WHATSAPP</button>
+          </div>
         </section>
       `).join("")
     : `
@@ -215,6 +245,10 @@ function renderHome(app){
   `;
 
   $$("[data-start-workout]").forEach(b=>b.onclick=()=>openSession(b.dataset.startWorkout));
+  $$("[data-share-workout]").forEach(b=>b.onclick=()=>{
+    const workout=state.workouts.find(w=>w.id===b.dataset.shareWorkout);
+    if(workout) shareWorkoutOnWhatsApp(workout);
+  });
   const go=$("#goWorkouts");
   if(go) go.onclick=()=>{ currentView="workouts"; render(); };
 }
@@ -416,7 +450,10 @@ function openExercisePicker(onSelect){
           </button>
         `).join("")
       : `<div class="empty-state" style="padding:20px 8px">
-          <p>Nenhum exercício encontrado.</p>
+          <div class="empty-icon">＋</div>
+          <h3>Exercício não encontrado</h3>
+          <p>Não achei "${escapeHtml(filter.trim())}" na sua biblioteca.</p>
+          ${filter.trim()?`<button class="secondary" type="button" id="registerMissingExercise">Cadastrar "${escapeHtml(filter.trim())}"</button>`:""}
         </div>`;
 
     $$("[data-pick-exercise]",overlay).forEach(btn=>{
@@ -427,6 +464,70 @@ function openExercisePicker(onSelect){
         onSelect(selected);
       };
     });
+
+    const missingBtn=$("#registerMissingExercise");
+    if(missingBtn){
+      missingBtn.onclick=()=>{
+        const searched=$("#exercisePickerSearch")?.value.trim()||"";
+
+        overlay.innerHTML=`
+          <div class="picker-sheet">
+            <div class="modal-head">
+              <h2>Cadastrar exercício</h2>
+              <button class="icon-btn" type="button" id="backToExercisePicker">←</button>
+            </div>
+
+            <div id="pickerLibraryValidation" class="validation-box" hidden></div>
+
+            <div class="form-group">
+              <label>Nome do exercício</label>
+              <input id="pickerNewExerciseName" value="${escapeHtml(searched)}" placeholder="Ex.: Supino reto máquina">
+            </div>
+
+            <div class="form-group">
+              <label>Grupo muscular</label>
+              <input id="pickerNewExerciseMuscle" placeholder="Ex.: Peito">
+            </div>
+
+            <button class="primary" type="button" id="savePickerExercise">Salvar e selecionar</button>
+          </div>
+        `;
+
+        $("#backToExercisePicker").onclick=()=>{
+          overlay.remove();
+          openExercisePicker(onSelect);
+        };
+
+        $("#savePickerExercise").onclick=()=>{
+          const name=$("#pickerNewExerciseName").value.trim();
+          const muscle=$("#pickerNewExerciseMuscle").value.trim();
+          const validation=$("#pickerLibraryValidation");
+
+          const errors=[];
+          if(!name) errors.push("Informe o nome do exercício.");
+
+          const duplicate=state.exerciseLibrary.find(e=>
+            normalizeExerciseName(e.name)===normalizeExerciseName(name)
+          );
+
+          if(duplicate) errors.push("Já existe um exercício com esse nome.");
+
+          if(errors.length){
+            validation.hidden=false;
+            validation.innerHTML=`<b>Não foi possível salvar:</b><ul>${errors.map(e=>`<li>${escapeHtml(e)}</li>`).join("")}</ul>`;
+            return;
+          }
+
+          const saved={id:crypto.randomUUID(),name,muscle};
+          state.exerciseLibrary.push(saved);
+          save();
+
+          closePicker();
+          onSelect(saved);
+          toast("Exercício cadastrado e selecionado.");
+        };
+      };
+    }
   };
 
   $("#closeExercisePicker").onclick=closePicker;
@@ -927,7 +1028,8 @@ function openWorkoutEditor(id){
         name:"",
         sets:3,
         reps:"8-12",
-        weight:0
+        weight:0,
+        notes:""
       }, $("#exerciseEditor").children.length)
     );
     bindExerciseEditorEvents();
@@ -961,7 +1063,8 @@ function openWorkoutEditor(id){
       name:$(".eName",row).value.trim(),
       sets:+$(".eSets",row).value||1,
       reps:$(".eReps",row).value.trim()||"8-12",
-      weight:+$(".eWeight",row).value||0
+      weight:+$(".eWeight",row).value||0,
+      notes:$(".eNotes",row)?.value.trim()||""
     })).filter(e=>e.name);
 
     const errors=[];
@@ -1016,6 +1119,11 @@ function exerciseEditorRow(e,i){
       <input class="eWeight" type="number" step="0.5" value="${e.weight||0}">
     </div>
 
+    <div class="form-group">
+      <label>Observações <span class="muted">opcional</span></label>
+      <textarea class="eNotes" placeholder="Ex.: controlar descida, banco na posição 3, não travar o cotovelo...">${escapeHtml(e.notes||"")}</textarea>
+    </div>
+
     <button class="danger removeExerciseBtn" type="button">Remover do treino</button>
   </div>`;
 }
@@ -1062,6 +1170,7 @@ function createSessionDraft(workout){
         exerciseId:ex.id,
         libraryId:ex.libraryId||null,
         name:ex.name,
+        notes:ex.notes||"",
         sets:Array.from({length:ex.sets},(_,i)=>{
           const prevSet=prevEx?.sets?.[i];
           return {
@@ -1081,6 +1190,7 @@ function persistActiveSessionFromUI(){
     exerciseId:exEl.dataset.id,
     libraryId:state.activeSession.exercises.find(x=>x.exerciseId===exEl.dataset.id)?.libraryId || null,
     name:state.activeSession.exercises.find(x=>x.exerciseId===exEl.dataset.id)?.name || "",
+    notes:state.activeSession.exercises.find(x=>x.exerciseId===exEl.dataset.id)?.notes || "",
     sets:$$(".set-row",exEl).map(r=>({
       weight:+$(".set-weight",r).value||0,
       reps:+$(".set-reps",r).value||0,
@@ -1111,6 +1221,7 @@ function openSession(workoutId){
         exerciseId:ex.id,
         libraryId:ex.libraryId||null,
         name:ex.name,
+        notes:ex.notes||"",
         sets:Array.from({length:ex.sets},()=>({weight:ex.weight||0,reps:parseInt(ex.reps)||0,done:false}))
       };
       draft.exercises.push(draftEx);
@@ -1138,6 +1249,7 @@ function openSession(workoutId){
         const pr=getExercisePR(ex.name,null,ex.libraryId||null);
         return pr ? `<div class="meta" style="margin-top:6px">Melhor carga registrada: <b>${pr.weight} kg × ${pr.reps} reps</b> · ${fmtDate(pr.date)}</div>` : "";
       })()}
+      ${ex.notes?`<div class="exercise-note"><b>Obs.:</b> ${escapeHtml(ex.notes)}</div>`:""}
       <div class="meta" style="margin:8px 0">Série · Peso (kg) · Reps</div>
       ${draftEx.sets.map((set,i)=>`
         <div class="set-row">

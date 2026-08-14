@@ -209,3 +209,40 @@ Gym Pocket - Guilherme.json
 ```
 
 A extensão `.json` é adicionada automaticamente. Caracteres inválidos para nomes de arquivo são tratados antes do download.
+
+
+## Busca inteligente, observações e compartilhamento
+
+### Cadastro a partir da busca
+
+Ao pesquisar um exercício que ainda não existe na biblioteca, o Gym Pocket oferece um botão para cadastrá-lo imediatamente usando o texto pesquisado como nome inicial.
+
+### Observações por exercício
+
+Cada exercício dentro de uma ficha possui um campo opcional de observações.
+
+Exemplos:
+
+```text
+Banco na posição 3
+Controlar a descida
+Não travar o cotovelo
+Última série até a falha
+```
+
+A observação pertence ao exercício daquela ficha e começa vazia ao adicionar um exercício da biblioteca.
+
+### Compartilhar treino no WhatsApp
+
+Os treinos exibidos na tela **Hoje** possuem a opção de compartilhar pelo WhatsApp.
+
+A mensagem inclui:
+
+- Nome do treino
+- Exercícios
+- Número de séries
+- Repetições
+- Peso sugerido
+- Observações, quando existirem
+
+Os dados continuam armazenados normalmente no backup JSON.
