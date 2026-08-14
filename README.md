@@ -1070,3 +1070,15 @@ Consulte o arquivo `LICENSE` do repositório para verificar as condições de ut
 <p align="center">
   Desenvolvido com 💻 + ☕ + 🏋️
 </p>
+
+
+## Compartilhar backup
+
+Depois de escolher o nome do arquivo, o Gym Pocket oferece duas opções:
+
+- **Baixar backup**
+- **Compartilhar backup**
+
+Em dispositivos compatíveis, o compartilhamento utiliza a Web Share API com o arquivo `.json` anexado, permitindo enviar o backup diretamente para aplicativos como WhatsApp, WhatsApp Business, Telegram, e-mail, Drive e outros destinos disponíveis no sistema.
+
+Se o navegador não permitir compartilhar arquivos, o aplicativo tenta compartilhar ou copiar o conteúdo JSON como fallback.

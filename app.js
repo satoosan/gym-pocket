@@ -1984,18 +1984,18 @@ function exportData(){
     </div>
   `, `
     <button class="primary" type="button" id="confirmExportBackup">Baixar backup</button>
+    <button class="secondary" type="button" id="shareExportBackup">Compartilhar backup</button>
   `);
 
   const input=$("#backupFileName");
 
-  const downloadBackup=()=>{
+  const getSafeFileName=()=>{
     let fileName=(input?.value||"").trim();
 
     if(!fileName){
       fileName="Gym Pocket Backup";
     }
 
-    // Remove extensão duplicada e caracteres inválidos em nomes de arquivo.
     fileName=fileName
       .replace(/\.json$/i,"")
       .replace(/[\\/:*?"<>|]/g,"-")
@@ -2003,13 +2003,23 @@ function exportData(){
       .trim();
 
     if(!fileName) fileName="Gym Pocket Backup";
+    return fileName;
+  };
 
-    const blob=new Blob(
-      [JSON.stringify(backup,null,2)],
+  const buildBackupFile=()=>{
+    const fileName=getSafeFileName();
+    const json=JSON.stringify(backup,null,2);
+    const file=new File(
+      [json],
+      `${fileName}.json`,
       {type:"application/json"}
     );
+    return {fileName,file,json};
+  };
 
-    const url=URL.createObjectURL(blob);
+  const downloadBackup=()=>{
+    const {fileName,file}=buildBackupFile();
+    const url=URL.createObjectURL(file);
     const a=document.createElement("a");
     a.href=url;
     a.download=`${fileName}.json`;
@@ -2022,11 +2032,71 @@ function exportData(){
     toast(`💾 Backup "${fileName}.json" exportado.`);
   };
 
+  const shareBackup=async()=>{
+    const {fileName,file,json}=buildBackupFile();
+
+    try{
+      if(navigator.canShare && navigator.canShare({files:[file]}) && navigator.share){
+        await navigator.share({
+          title:`Backup Gym Pocket - ${fileName}`,
+          text:"Backup completo do Gym Pocket.",
+          files:[file]
+        });
+
+        closeModal();
+        return;
+      }
+
+      if(navigator.share){
+        await navigator.share({
+          title:`Backup Gym Pocket - ${fileName}`,
+          text:json
+        });
+
+        closeModal();
+        return;
+      }
+
+      await navigator.clipboard.writeText(json);
+      closeModal();
+      toast("Backup copiado. Cole onde quiser.");
+    }catch(err){
+      if(err && err.name==="AbortError") return;
+
+      try{
+        await navigator.clipboard.writeText(json);
+        closeModal();
+        toast("Não foi possível anexar o arquivo. Backup copiado para a área de transferência.");
+      }catch{
+        openModal("Compartilhar backup", `
+          <p class="muted">Seu navegador não conseguiu abrir o menu de compartilhamento. Copie o conteúdo abaixo:</p>
+          <textarea id="backupShareFallback" style="min-height:280px">${escapeHtml(json)}</textarea>
+        `, `
+          <button class="primary" type="button" id="copyBackupFallback">Copiar backup</button>
+        `);
+
+        $("#copyBackupFallback").onclick=async()=>{
+          const area=$("#backupShareFallback");
+          area.select();
+          try{
+            await navigator.clipboard.writeText(area.value);
+          }catch{
+            document.execCommand("copy");
+          }
+          closeModal();
+          toast("Backup copiado.");
+        };
+      }
+    }
+  };
+
   $("#confirmExportBackup").onclick=downloadBackup;
+  $("#shareExportBackup").onclick=shareBackup;
 
   if(input){
     input.focus();
     input.select();
+
     input.addEventListener("keydown",e=>{
       if(e.key==="Enter"){
         e.preventDefault();
