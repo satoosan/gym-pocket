@@ -9,6 +9,7 @@ Webapp/PWA pessoal para acompanhar treinos e evolução corporal.
 - Dias da semana por treino
 - Exercícios, séries, repetições e carga
 - Registro de sessão concluída
+- Cronômetro de descanso automático ao concluir uma série
 - Histórico com volume total
 - Peso e bioimpedância
 - Avaliação estimada por medidas corporais (método de circunferências)

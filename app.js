@@ -161,6 +161,35 @@ function exerciseEditorRow(e,i){
   </div>`;
 }
 
+
+let restTimerInterval=null;
+function startRestTimer(seconds=90){
+  clearInterval(restTimerInterval);
+  let remaining=seconds;
+  const box=$("#restTimer");
+  if(!box) return;
+  const draw=()=>{
+    const m=String(Math.floor(remaining/60)).padStart(2,"0");
+    const s=String(remaining%60).padStart(2,"0");
+    $("#restTime").textContent=`${m}:${s}`;
+    if(remaining<=0){
+      clearInterval(restTimerInterval);
+      box.classList.add("timer-done");
+      if(navigator.vibrate) navigator.vibrate([150,80,150]);
+      toast("Descanso finalizado!");
+      return;
+    }
+    remaining--;
+  };
+  box.classList.remove("timer-done");
+  draw();
+  restTimerInterval=setInterval(draw,1000);
+}
+function stopRestTimer(){
+  clearInterval(restTimerInterval);
+  const el=$("#restTime"); if(el) el.textContent="01:30";
+}
+
 function openSession(workoutId){
   const workout=state.workouts.find(w=>w.id===workoutId);
   if(!workout) return;
@@ -181,8 +210,32 @@ function openSession(workoutId){
       }).join("")}
     </section>`;
   }).join("");
-  openModal(workout.name, body, `<button class="primary" type="button" id="finishSession">FINALIZAR TREINO</button>`);
-  $$(".check-set").forEach(b=>b.onclick=()=>b.classList.toggle("checked"));
+  openModal(workout.name, `
+    <section class="card" id="restTimer">
+      <div class="row">
+        <div>
+          <div class="meta">DESCANSO</div>
+          <strong id="restTime" style="font-size:34px;letter-spacing:.04em">01:30</strong>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="small-btn" type="button" id="minusTimer">−15s</button>
+          <button class="small-btn" type="button" id="plusTimer">+15s</button>
+        </div>
+      </div>
+      <div class="grid-2" style="margin-top:12px">
+        <button class="secondary" type="button" id="startTimer">Iniciar 1:30</button>
+        <button class="secondary" type="button" id="stopTimer">Parar</button>
+      </div>
+      <p class="meta" style="margin:10px 0 0">Ao concluir uma série, o descanso inicia automaticamente.</p>
+    </section>
+    ${body}`, `<button class="primary" type="button" id="finishSession">FINALIZAR TREINO</button>`);
+  let timerSeconds=90;
+  const refreshTimerLabel=()=>{ const m=String(Math.floor(timerSeconds/60)).padStart(2,"0"),s=String(timerSeconds%60).padStart(2,"0"); $("#restTime").textContent=`${m}:${s}`; $("#startTimer").textContent=`Iniciar ${m}:${s}`; };
+  $("#minusTimer").onclick=()=>{timerSeconds=Math.max(15,timerSeconds-15);stopRestTimer();refreshTimerLabel();};
+  $("#plusTimer").onclick=()=>{timerSeconds=Math.min(600,timerSeconds+15);stopRestTimer();refreshTimerLabel();};
+  $("#startTimer").onclick=()=>startRestTimer(timerSeconds);
+  $("#stopTimer").onclick=()=>{stopRestTimer();refreshTimerLabel();};
+  $$(".check-set").forEach(b=>b.onclick=()=>{ b.classList.toggle("checked"); if(b.classList.contains("checked")) startRestTimer(timerSeconds); });
   $("#finishSession").onclick=()=>{
     const exercises=$$(".session-ex").map(exEl=>({
       exerciseId:exEl.dataset.id,
@@ -194,7 +247,7 @@ function openSession(workoutId){
       }))
     }));
     state.sessions.push({id:crypto.randomUUID(),workoutId,workoutName:workout.name,date:todayISO(),exercises});
-    save(); closeModal(); currentView="history"; render(); toast("Treino registrado. Boa!");
+    save(); stopRestTimer(); closeModal(); currentView="history"; render(); toast("Treino registrado. Boa!");
   };
 }
 
@@ -549,7 +602,7 @@ function importData(e){
 function openModal(title,body,actions=""){
   $("#modalTitle").textContent=title; $("#modalBody").innerHTML=body; $("#modalActions").innerHTML=actions; $("#modal").showModal();
 }
-function closeModal(){ $("#modal").close(); }
+function closeModal(){ clearInterval(restTimerInterval); $("#modal").close(); }
 $("#modalClose").onclick=closeModal;
 $$(".nav-item").forEach(b=>b.onclick=()=>{ currentView=b.dataset.view; render(); });
 
