@@ -246,3 +246,20 @@ A mensagem inclui:
 - Observações, quando existirem
 
 Os dados continuam armazenados normalmente no backup JSON.
+
+
+## Compartilhamento nativo
+
+O botão de compartilhamento dos treinos utiliza a **Web Share API** quando disponível.
+
+Em dispositivos compatíveis, isso abre o seletor nativo do sistema, permitindo escolher entre aplicativos instalados, como:
+
+- WhatsApp
+- WhatsApp Business
+- Telegram
+- Mensagens
+- E-mail
+- Copiar
+- Outros aplicativos compatíveis
+
+Caso o navegador não suporte compartilhamento nativo, o Gym Pocket tenta copiar o treino para a área de transferência. Se isso também não estiver disponível, apresenta o texto em uma janela para cópia manual.

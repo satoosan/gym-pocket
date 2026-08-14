@@ -164,10 +164,47 @@ function buildWorkoutShareText(workout){
   return lines.join("\n");
 }
 
-function shareWorkoutOnWhatsApp(workout){
+async function shareWorkout(workout){
   const text=buildWorkoutShareText(workout);
-  const url=`https://wa.me/?text=${encodeURIComponent(text)}`;
-  window.open(url,"_blank","noopener,noreferrer");
+
+  if(navigator.share){
+    try{
+      await navigator.share({
+        title: workout.name,
+        text
+      });
+      return;
+    }catch(err){
+      // O usuário pode simplesmente fechar o seletor.
+      if(err && err.name==="AbortError") return;
+    }
+  }
+
+  try{
+    await navigator.clipboard.writeText(text);
+    toast("Treino copiado. Agora é só colar onde quiser.");
+  }catch{
+    openModal("Compartilhar treino", `
+      <p class="muted">Seu navegador não abriu o menu de compartilhamento. Copie o texto abaixo:</p>
+      <textarea id="shareFallbackText" style="min-height:260px">${escapeHtml(text)}</textarea>
+    `, `
+      <button class="primary" type="button" id="copyShareFallback">Copiar texto</button>
+    `);
+
+    $("#copyShareFallback").onclick=async()=>{
+      const area=$("#shareFallbackText");
+      area.select();
+
+      try{
+        await navigator.clipboard.writeText(area.value);
+      }catch{
+        document.execCommand("copy");
+      }
+
+      closeModal();
+      toast("Treino copiado.");
+    };
+  }
 }
 
 function renderHome(app){
@@ -212,7 +249,7 @@ function renderHome(app){
           </div>
           <div class="stack">
             <button class="primary" data-start-workout="${w.id}">INICIAR TREINO</button>
-            <button class="secondary" data-share-workout="${w.id}">↗ COMPARTILHAR NO WHATSAPP</button>
+            <button class="secondary" data-share-workout="${w.id}">↗ COMPARTILHAR TREINO</button>
           </div>
         </section>
       `).join("")
@@ -247,7 +284,7 @@ function renderHome(app){
   $$("[data-start-workout]").forEach(b=>b.onclick=()=>openSession(b.dataset.startWorkout));
   $$("[data-share-workout]").forEach(b=>b.onclick=()=>{
     const workout=state.workouts.find(w=>w.id===b.dataset.shareWorkout);
-    if(workout) shareWorkoutOnWhatsApp(workout);
+    if(workout) shareWorkout(workout);
   });
   const go=$("#goWorkouts");
   if(go) go.onclick=()=>{ currentView="workouts"; render(); };
