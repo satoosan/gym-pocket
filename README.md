@@ -177,3 +177,19 @@ O aplicativo apresenta:
 Um ciclo não altera automaticamente o histórico nem finaliza treinos. Ele funciona como uma camada de organização sobre as fichas existentes.
 
 Ciclos também fazem parte do backup completo em JSON.
+
+
+## Histórico de ciclos
+
+Quando todas as semanas de um ciclo são marcadas como concluídas, o Gym Pocket:
+
+- Marca o ciclo como finalizado
+- Registra a data de conclusão
+- Remove o ciclo da lista de ciclos ativos
+- Move o registro para o **Histórico de Ciclos**
+- Mantém os treinos e sessões normalmente
+- Permite reabrir um ciclo finalizado caso necessário
+
+O histórico fica recolhido por padrão para não poluir a tela quando muitos ciclos já tiverem sido concluídos.
+
+O status do ciclo, a data de conclusão e os checks semanais continuam incluídos no backup JSON.

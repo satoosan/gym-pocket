@@ -300,3 +300,31 @@ hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
 @media (min-width:420px) {
   .program-weeks { grid-template-columns:repeat(5,minmax(0,1fr)); }
 }
+
+.program-history-card {
+  padding: 0;
+  overflow: hidden;
+}
+.program-history-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  cursor: pointer;
+}
+.program-history-summary::-webkit-details-marker {
+  display: none;
+}
+.program-history-list {
+  border-top: 1px solid var(--line);
+  padding: 0 16px;
+}
+.program-history-item {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.program-history-item:last-child {
+  border-bottom: 0;
+}

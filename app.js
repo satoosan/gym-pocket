@@ -85,9 +85,19 @@ function load(){
       });
     });
 
+    const programs=(Array.isArray(raw.programs)?raw.programs:[]).map(program=>({
+      ...program,
+      status:program.status || (
+        (Array.isArray(program.completedWeeks) && program.completedWeeks.length>=Math.max(1,+program.weeks||1))
+          ? "completed"
+          : "active"
+      ),
+      finishedAt:program.finishedAt || null
+    }));
+
     return {
       exerciseLibrary,
-      programs:Array.isArray(raw.programs)?raw.programs:[],
+      programs,
       workouts,
       sessions,
       body:Array.isArray(raw.body)?raw.body:[],
@@ -494,20 +504,136 @@ function getProgramProgress(program){
     completed,
     total,
     percent:Math.min(100,Math.round((completed/total)*100)),
-    done:completed>=total
+    done:program.status==="completed" || completed>=total
   };
 }
 
+function finalizeProgram(program){
+  program.completedWeeks=Array.from(
+    new Set(Array.from({length:Math.max(1,+program.weeks||1)},(_,i)=>i+1))
+  );
+  program.status="completed";
+  program.finishedAt=todayISO();
+}
+
+function reopenProgram(program){
+  program.status="active";
+  program.finishedAt=null;
+
+  // Ao reabrir, desmarca a última semana para o ciclo voltar a ficar pendente.
+  const total=Math.max(1,+program.weeks||1);
+  program.completedWeeks=(program.completedWeeks||[]).filter(week=>week!==total);
+}
+
 function renderProgramsSection(){
-  if(!state.programs.length){
-    return `
-      <div class="section-title"><h2>Ciclos de treino</h2></div>
+  const activePrograms=state.programs.filter(p=>p.status!=="completed");
+  const completedPrograms=[...state.programs]
+    .filter(p=>p.status==="completed")
+    .sort((a,b)=>(b.finishedAt||"").localeCompare(a.finishedAt||""));
+
+  const activeHtml = activePrograms.length
+    ? activePrograms.map(program=>{
+        const progress=getProgramProgress(program);
+        const workoutNames=(program.workoutIds||[])
+          .map(id=>state.workouts.find(w=>w.id===id)?.name)
+          .filter(Boolean);
+
+        return `
+          <section class="card program-card">
+            <div class="row">
+              <div style="min-width:0">
+                <span class="pill">Em andamento</span>
+                <h3 style="font-size:20px;margin:10px 0 4px">${escapeHtml(program.name)}</h3>
+                <div class="meta">${progress.completed}/${progress.total} semanas concluídas · ${workoutNames.length} treinos</div>
+              </div>
+              <button class="small-btn" type="button" data-edit-program="${program.id}">Editar</button>
+            </div>
+
+            <div class="progress-bar" style="margin:14px 0 10px">
+              <div class="progress-fill" style="width:${progress.percent}%"></div>
+            </div>
+
+            <div class="program-workouts">
+              ${workoutNames.map(name=>`<span class="program-workout-chip">${escapeHtml(name)}</span>`).join("")}
+            </div>
+
+            <div class="program-weeks">
+              ${Array.from({length:progress.total},(_,i)=>{
+                const week=i+1;
+                const checked=(program.completedWeeks||[]).includes(week);
+                return `
+                  <button
+                    class="program-week ${checked?"checked":""}"
+                    type="button"
+                    data-program-week="${program.id}:${week}"
+                    aria-label="Semana ${week}">
+                    <span>${checked?"✓":week}</span>
+                    <small>Sem ${week}</small>
+                  </button>
+                `;
+              }).join("")}
+            </div>
+          </section>
+        `;
+      }).join("")
+    : `
       <section class="card">
-        <p class="muted">Agrupe várias fichas em um ciclo e acompanhe manualmente semana por semana.</p>
-        <button class="secondary" type="button" id="newProgram">＋ NOVO CICLO</button>
+        <div class="empty-state" style="padding:24px 12px">
+          <div class="empty-icon">✓</div>
+          <h3>Nenhum ciclo ativo</h3>
+          <p>Crie um novo ciclo ou consulte os que você já finalizou.</p>
+        </div>
       </section>
     `;
-  }
+
+  const historyHtml = completedPrograms.length
+    ? `
+      <details class="card program-history-card">
+        <summary class="program-history-summary">
+          <div>
+            <b>🏆 Histórico de ciclos</b>
+            <div class="meta">${completedPrograms.length} ciclo${completedPrograms.length>1?"s":""} finalizado${completedPrograms.length>1?"s":""}</div>
+          </div>
+          <span class="pill">${completedPrograms.length}</span>
+        </summary>
+
+        <div class="program-history-list">
+          ${completedPrograms.map(program=>{
+            const workoutNames=(program.workoutIds||[])
+              .map(id=>state.workouts.find(w=>w.id===id)?.name)
+              .filter(Boolean);
+
+            return `
+              <div class="program-history-item">
+                <div class="row">
+                  <div style="min-width:0">
+                    <span class="pill program-done-pill">Concluído</span>
+                    <h3 style="margin:8px 0 4px">${escapeHtml(program.name)}</h3>
+                    <div class="meta">
+                      ${program.weeks} semanas · Finalizado em ${program.finishedAt?fmtDate(program.finishedAt):"data não registrada"}
+                    </div>
+                  </div>
+                </div>
+
+                <div class="program-workouts" style="margin-top:10px">
+                  ${workoutNames.map(name=>`<span class="program-workout-chip">${escapeHtml(name)}</span>`).join("")}
+                </div>
+
+                <div class="progress-bar" style="margin:10px 0 12px">
+                  <div class="progress-fill" style="width:100%"></div>
+                </div>
+
+                <div class="grid-2">
+                  <button class="secondary" type="button" data-reopen-program="${program.id}">Reabrir ciclo</button>
+                  <button class="danger" type="button" data-delete-completed-program="${program.id}">Excluir histórico</button>
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </details>
+    `
+    : "";
 
   return `
     <div class="section-title">
@@ -515,58 +641,8 @@ function renderProgramsSection(){
       <button class="small-btn" type="button" id="newProgram">＋ Novo</button>
     </div>
 
-    ${state.programs.map(program=>{
-      const progress=getProgramProgress(program);
-      const workoutNames=(program.workoutIds||[])
-        .map(id=>state.workouts.find(w=>w.id===id)?.name)
-        .filter(Boolean);
-
-      return `
-        <section class="card program-card">
-          <div class="row">
-            <div style="min-width:0">
-              <span class="pill ${progress.done?"program-done-pill":""}">
-                ${progress.done?"Concluído":"Em andamento"}
-              </span>
-              <h3 style="font-size:20px;margin:10px 0 4px">${escapeHtml(program.name)}</h3>
-              <div class="meta">${progress.completed}/${progress.total} semanas concluídas · ${workoutNames.length} treinos</div>
-            </div>
-            <button class="small-btn" type="button" data-edit-program="${program.id}">Editar</button>
-          </div>
-
-          <div class="progress-bar" style="margin:14px 0 10px">
-            <div class="progress-fill" style="width:${progress.percent}%"></div>
-          </div>
-
-          <div class="program-workouts">
-            ${workoutNames.map(name=>`<span class="program-workout-chip">${escapeHtml(name)}</span>`).join("")}
-          </div>
-
-          <div class="program-weeks">
-            ${Array.from({length:progress.total},(_,i)=>{
-              const week=i+1;
-              const checked=(program.completedWeeks||[]).includes(week);
-              return `
-                <button
-                  class="program-week ${checked?"checked":""}"
-                  type="button"
-                  data-program-week="${program.id}:${week}"
-                  aria-label="Semana ${week}">
-                  <span>${checked?"✓":week}</span>
-                  <small>Sem ${week}</small>
-                </button>
-              `;
-            }).join("")}
-          </div>
-
-          ${progress.done?`
-            <div class="program-complete-message">
-              🏆 Ciclo finalizado. É isso aí!
-            </div>
-          `:""}
-        </section>
-      `;
-    }).join("")}
+    ${activeHtml}
+    ${historyHtml}
   `;
 }
 
@@ -592,17 +668,56 @@ function bindProgramSectionEvents(){
       }else{
         program.completedWeeks.push(week);
         program.completedWeeks.sort((a,b)=>a-b);
-
-        const progress=getProgramProgress(program);
-        if(progress.done){
-          toast(`🏆 ${program.name} concluído! É isso aí!`);
-        }else{
-          toast(`✓ Semana ${week} concluída. Continua assim!`);
-        }
       }
 
+      const total=Math.max(1,+program.weeks||1);
+      const allDone=Array.from({length:total},(_,i)=>i+1)
+        .every(w=>program.completedWeeks.includes(w));
+
+      if(allDone){
+        finalizeProgram(program);
+        save();
+        render();
+        toast(`🏆 ${program.name} finalizado e enviado para o histórico!`);
+        return;
+      }
+
+      program.status="active";
+      program.finishedAt=null;
       save();
       render();
+
+      if(program.completedWeeks.includes(week)){
+        toast(`✓ Semana ${week} concluída. Continua assim!`);
+      }
+    };
+  });
+
+  $$("[data-reopen-program]").forEach(btn=>{
+    btn.onclick=()=>{
+      const program=state.programs.find(p=>p.id===btn.dataset.reopenProgram);
+      if(!program) return;
+
+      if(!confirm(`Reabrir o ciclo "${program.name}"?`)) return;
+
+      reopenProgram(program);
+      save();
+      render();
+      toast("Ciclo reaberto.");
+    };
+  });
+
+  $$("[data-delete-completed-program]").forEach(btn=>{
+    btn.onclick=()=>{
+      const program=state.programs.find(p=>p.id===btn.dataset.deleteCompletedProgram);
+      if(!program) return;
+
+      if(!confirm(`Excluir "${program.name}" do histórico de ciclos? Os treinos e sessões não serão apagados.`)) return;
+
+      state.programs=state.programs.filter(p=>p.id!==program.id);
+      save();
+      render();
+      toast("Ciclo removido do histórico.");
     };
   });
 }
@@ -614,7 +729,9 @@ function openProgramEditor(id=null){
     name:"",
     weeks:4,
     workoutIds:[],
-    completedWeeks:[]
+    completedWeeks:[],
+    status:"active",
+    finishedAt:null
   };
 
   openModal(existing?"Editar ciclo":"Novo ciclo de treino", `
@@ -688,7 +805,9 @@ function openProgramEditor(id=null){
       name,
       weeks,
       workoutIds,
-      completedWeeks
+      completedWeeks,
+      status:program.status||"active",
+      finishedAt:program.finishedAt||null
     };
 
     if(existing){
@@ -1681,6 +1800,8 @@ function buildBackup(){
     exportedAt: new Date().toISOString(),
     summary: {
       programs: state.programs.length,
+      activePrograms: state.programs.filter(p=>p.status!=="completed").length,
+      completedPrograms: state.programs.filter(p=>p.status==="completed").length,
       workouts: state.workouts.length,
       sessions: state.sessions.length,
       bodyAssessments: state.body.length
