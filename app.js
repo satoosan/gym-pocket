@@ -9,6 +9,7 @@ const defaultData = {
     { id: crypto.randomUUID(), name:"Desenvolvimento", muscle:"Ombros" },
     { id: crypto.randomUUID(), name:"Tríceps corda", muscle:"Tríceps" }
   ],
+  programs: [],
   workouts: [
     {
       id: crypto.randomUUID(),
@@ -86,6 +87,7 @@ function load(){
 
     return {
       exerciseLibrary,
+      programs:Array.isArray(raw.programs)?raw.programs:[],
       workouts,
       sessions,
       body:Array.isArray(raw.body)?raw.body:[],
@@ -484,17 +486,258 @@ function openExercisePicker(onSelect){
   setTimeout(()=>$("#exercisePickerSearch")?.focus(),50);
 }
 
+
+function getProgramProgress(program){
+  const completed=Array.isArray(program.completedWeeks)?program.completedWeeks.length:0;
+  const total=Math.max(1,+program.weeks||1);
+  return {
+    completed,
+    total,
+    percent:Math.min(100,Math.round((completed/total)*100)),
+    done:completed>=total
+  };
+}
+
+function renderProgramsSection(){
+  if(!state.programs.length){
+    return `
+      <div class="section-title"><h2>Ciclos de treino</h2></div>
+      <section class="card">
+        <p class="muted">Agrupe várias fichas em um ciclo e acompanhe manualmente semana por semana.</p>
+        <button class="secondary" type="button" id="newProgram">＋ NOVO CICLO</button>
+      </section>
+    `;
+  }
+
+  return `
+    <div class="section-title">
+      <h2>Ciclos de treino</h2>
+      <button class="small-btn" type="button" id="newProgram">＋ Novo</button>
+    </div>
+
+    ${state.programs.map(program=>{
+      const progress=getProgramProgress(program);
+      const workoutNames=(program.workoutIds||[])
+        .map(id=>state.workouts.find(w=>w.id===id)?.name)
+        .filter(Boolean);
+
+      return `
+        <section class="card program-card">
+          <div class="row">
+            <div style="min-width:0">
+              <span class="pill ${progress.done?"program-done-pill":""}">
+                ${progress.done?"Concluído":"Em andamento"}
+              </span>
+              <h3 style="font-size:20px;margin:10px 0 4px">${escapeHtml(program.name)}</h3>
+              <div class="meta">${progress.completed}/${progress.total} semanas concluídas · ${workoutNames.length} treinos</div>
+            </div>
+            <button class="small-btn" type="button" data-edit-program="${program.id}">Editar</button>
+          </div>
+
+          <div class="progress-bar" style="margin:14px 0 10px">
+            <div class="progress-fill" style="width:${progress.percent}%"></div>
+          </div>
+
+          <div class="program-workouts">
+            ${workoutNames.map(name=>`<span class="program-workout-chip">${escapeHtml(name)}</span>`).join("")}
+          </div>
+
+          <div class="program-weeks">
+            ${Array.from({length:progress.total},(_,i)=>{
+              const week=i+1;
+              const checked=(program.completedWeeks||[]).includes(week);
+              return `
+                <button
+                  class="program-week ${checked?"checked":""}"
+                  type="button"
+                  data-program-week="${program.id}:${week}"
+                  aria-label="Semana ${week}">
+                  <span>${checked?"✓":week}</span>
+                  <small>Sem ${week}</small>
+                </button>
+              `;
+            }).join("")}
+          </div>
+
+          ${progress.done?`
+            <div class="program-complete-message">
+              🏆 Ciclo finalizado. É isso aí!
+            </div>
+          `:""}
+        </section>
+      `;
+    }).join("")}
+  `;
+}
+
+function bindProgramSectionEvents(){
+  const newBtn=$("#newProgram");
+  if(newBtn) newBtn.onclick=()=>openProgramEditor();
+
+  $$("[data-edit-program]").forEach(btn=>{
+    btn.onclick=()=>openProgramEditor(btn.dataset.editProgram);
+  });
+
+  $$("[data-program-week]").forEach(btn=>{
+    btn.onclick=()=>{
+      const [programId,weekText]=btn.dataset.programWeek.split(":");
+      const week=+weekText;
+      const program=state.programs.find(p=>p.id===programId);
+      if(!program) return;
+
+      program.completedWeeks=Array.isArray(program.completedWeeks)?program.completedWeeks:[];
+
+      if(program.completedWeeks.includes(week)){
+        program.completedWeeks=program.completedWeeks.filter(w=>w!==week);
+      }else{
+        program.completedWeeks.push(week);
+        program.completedWeeks.sort((a,b)=>a-b);
+
+        const progress=getProgramProgress(program);
+        if(progress.done){
+          toast(`🏆 ${program.name} concluído! É isso aí!`);
+        }else{
+          toast(`✓ Semana ${week} concluída. Continua assim!`);
+        }
+      }
+
+      save();
+      render();
+    };
+  });
+}
+
+function openProgramEditor(id=null){
+  const existing=id?state.programs.find(p=>p.id===id):null;
+  const program=existing || {
+    id:crypto.randomUUID(),
+    name:"",
+    weeks:4,
+    workoutIds:[],
+    completedWeeks:[]
+  };
+
+  openModal(existing?"Editar ciclo":"Novo ciclo de treino", `
+    <div id="programValidation" class="validation-box" hidden></div>
+
+    <div class="form-group">
+      <label>Nome do ciclo</label>
+      <input id="programName" value="${escapeHtml(program.name)}" placeholder="Ex.: Hipertrofia 5 semanas">
+    </div>
+
+    <div class="form-group">
+      <label>Duração em semanas</label>
+      <input id="programWeeks" type="number" min="1" max="52" value="${program.weeks||4}">
+    </div>
+
+    <div class="form-group">
+      <label>Treinos que fazem parte do ciclo</label>
+      <div class="program-workout-selector">
+        ${state.workouts.length
+          ? state.workouts.map(w=>`
+              <label class="program-workout-option">
+                <input
+                  type="checkbox"
+                  class="programWorkoutCheck"
+                  value="${w.id}"
+                  ${(program.workoutIds||[]).includes(w.id)?"checked":""}>
+                <span>
+                  <b>${escapeHtml(w.name)}</b>
+                  <small>${w.exercises.length} exercícios · ${w.days.join(", ")||"sem dias"}</small>
+                </span>
+              </label>
+            `).join("")
+          : `<p class="muted">Você precisa criar pelo menos uma ficha antes de montar um ciclo.</p>`
+        }
+      </div>
+    </div>
+
+    ${existing?`
+      <div class="card" style="margin-top:12px">
+        <h3>Progresso atual</h3>
+        <p class="muted">Os checks semanais são manuais. Você pode marcar ou desmarcar diretamente no card do ciclo.</p>
+        <b>${(program.completedWeeks||[]).length} de ${program.weeks||1} semanas concluídas</b>
+      </div>
+    `:""}
+  `, `
+    <button class="primary" type="button" id="saveProgram">Salvar ciclo</button>
+    ${existing?'<button class="danger" type="button" id="deleteProgram">Excluir ciclo</button>':""}
+  `);
+
+  $("#saveProgram").onclick=()=>{
+    const name=$("#programName").value.trim();
+    const weeks=Math.max(1,Math.min(52,+$("#programWeeks").value||1));
+    const workoutIds=$$(".programWorkoutCheck:checked").map(x=>x.value);
+    const errors=[];
+
+    if(!name) errors.push("Informe o nome do ciclo.");
+    if(workoutIds.length<1) errors.push("Selecione pelo menos um treino.");
+
+    const validation=$("#programValidation");
+    if(errors.length){
+      validation.hidden=false;
+      validation.innerHTML=`<b>Não foi possível salvar:</b><ul>${errors.map(e=>`<li>${escapeHtml(e)}</li>`).join("")}</ul>`;
+      validation.scrollIntoView({behavior:"smooth",block:"start"});
+      return;
+    }
+
+    const completedWeeks=(program.completedWeeks||[]).filter(w=>w<=weeks);
+
+    const next={
+      ...program,
+      name,
+      weeks,
+      workoutIds,
+      completedWeeks
+    };
+
+    if(existing){
+      state.programs=state.programs.map(p=>p.id===existing.id?next:p);
+    }else{
+      state.programs.push(next);
+    }
+
+    save();
+    closeModal();
+    currentView="workouts";
+    render();
+    toast("Ciclo salvo.");
+  };
+
+  if(existing){
+    $("#deleteProgram").onclick=()=>{
+      if(!confirm(`Excluir o ciclo "${existing.name}"? Os treinos e históricos não serão apagados.`)) return;
+      state.programs=state.programs.filter(p=>p.id!==existing.id);
+      save();
+      closeModal();
+      render();
+      toast("Ciclo excluído.");
+    };
+  }
+}
+
+
 function renderWorkouts(app){
   app.innerHTML=`
+    ${renderProgramsSection()}
+
     <button class="primary" id="newWorkout">＋ NOVO TREINO</button>
+
     <div class="section-title"><h2>Suas fichas</h2></div>
     <section class="card">
       ${state.workouts.length ? state.workouts.map(w=>`
         <div class="list-item">
-          <div><b>${escapeHtml(w.name)}</b><div class="meta">${w.exercises.length} exercícios · ${w.days.join(", ")||"sem dias"}</div></div>
+          <div>
+            <b>${escapeHtml(w.name)}</b>
+            <div class="meta">${w.exercises.length} exercícios · ${w.days.join(", ")||"sem dias"}</div>
+          </div>
           <button class="small-btn" data-edit-workout="${w.id}">Editar</button>
-        </div>`).join("") : $("#emptyTemplate").innerHTML}
+        </div>
+      `).join("") : $("#emptyTemplate").innerHTML}
     </section>`;
+
+  bindProgramSectionEvents();
+
   $("#newWorkout").onclick=()=>openWorkoutEditor();
   $$("[data-edit-workout]").forEach(b=>b.onclick=()=>openWorkoutEditor(b.dataset.editWorkout));
 }
@@ -1437,12 +1680,14 @@ function buildBackup(){
     backupVersion: 2,
     exportedAt: new Date().toISOString(),
     summary: {
+      programs: state.programs.length,
       workouts: state.workouts.length,
       sessions: state.sessions.length,
       bodyAssessments: state.body.length
     },
     data: {
       exerciseLibrary: state.exerciseLibrary,
+      programs: state.programs,
       workouts: state.workouts,
       sessions: state.sessions,
       body: state.body,
@@ -1469,6 +1714,7 @@ function normalizeImportedData(parsed){
   if(!data || typeof data!=="object") throw new Error("Formato inválido");
   return {
     exerciseLibrary:Array.isArray(data.exerciseLibrary)?data.exerciseLibrary:[],
+    programs:Array.isArray(data.programs)?data.programs:[],
     workouts:Array.isArray(data.workouts)?data.workouts:[],
     sessions:Array.isArray(data.sessions)?data.sessions:[],
     body:Array.isArray(data.body)?data.body:[],
@@ -1490,6 +1736,7 @@ function mergeById(current,incoming){
 function mergeImportedData(incoming){
   state={
     exerciseLibrary:mergeById(state.exerciseLibrary,incoming.exerciseLibrary),
+    programs:mergeById(state.programs,incoming.programs),
     workouts:mergeById(state.workouts,incoming.workouts),
     sessions:mergeById(state.sessions,incoming.sessions),
     body:mergeById(state.body,incoming.body),
@@ -1501,6 +1748,7 @@ function mergeImportedData(incoming){
 function replaceImportedData(incoming){
   state={
     exerciseLibrary:incoming.exerciseLibrary,
+    programs:incoming.programs,
     workouts:incoming.workouts,
     sessions:incoming.sessions,
     body:incoming.body,
@@ -1570,6 +1818,7 @@ function resetProgressData(){
 function resetWorkoutData(){
   if(!confirm("Resetar todas as fichas de treino? O histórico e as avaliações corporais serão mantidos.")) return;
   state.workouts=[];
+  state.programs=[];
   state.activeSession=null;
   save();
   render();
@@ -1579,7 +1828,7 @@ function resetWorkoutData(){
 function resetAllData(){
   if(!confirm("RESETAR TUDO? Isso apagará treinos, histórico, avaliações e configurações salvas neste aparelho.")) return;
   if(!confirm("Última confirmação: deseja realmente apagar todos os dados do Gym Pocket?")) return;
-  state={exerciseLibrary:[],workouts:[],sessions:[],body:[],activeSession:null,settings:{...defaultData.settings}};
+  state={exerciseLibrary:[],programs:[],workouts:[],sessions:[],body:[],activeSession:null,settings:{...defaultData.settings}};
   save();
   render();
   toast("Gym Pocket resetado.");

@@ -145,3 +145,35 @@ Isso evita que o editor do treino seja fechado ao escolher um exercício. Depois
 Ao adicionar ou selecionar um novo exercício dentro de uma ficha, o editor mantém o usuário no card recém-criado.
 
 Depois da seleção, o Gym Pocket rola suavemente até o exercício e posiciona o foco nos campos de séries/repetições, evitando voltar ao topo do formulário.
+
+
+## Ciclos / programas de treino
+
+É possível agrupar várias fichas em um ciclo de treinamento com duração definida em semanas.
+
+Exemplo:
+
+```text
+Hipertrofia — 5 semanas
+
+Push
+Pull
+Legs
+Upper
+Lower
+```
+
+O progresso semanal é manual. Ao terminar uma semana, o usuário marca o respectivo check no card do ciclo.
+
+O aplicativo apresenta:
+
+- Total de semanas
+- Semanas concluídas
+- Barra de progresso
+- Treinos incluídos
+- Checks individuais por semana
+- Destaque quando o ciclo é concluído
+
+Um ciclo não altera automaticamente o histórico nem finaliza treinos. Ele funciona como uma camada de organização sobre as fichas existentes.
+
+Ciclos também fazem parte do backup completo em JSON.

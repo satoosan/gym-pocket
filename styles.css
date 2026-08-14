@@ -216,3 +216,87 @@ hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
 .exercise-edit:focus-within {
   border-color: rgba(181,243,74,.35);
 }
+
+.program-card { overflow: hidden; }
+.program-workouts {
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px;
+  margin:10px 0 14px;
+}
+.program-workout-chip {
+  display:inline-flex;
+  padding:6px 9px;
+  border-radius:999px;
+  background:var(--panel-2);
+  border:1px solid var(--line);
+  color:var(--muted);
+  font-size:11px;
+  font-weight:700;
+}
+.program-weeks {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:8px;
+  margin-top:12px;
+}
+.program-week {
+  border:1px solid var(--line);
+  background:var(--panel-2);
+  color:var(--muted);
+  border-radius:14px;
+  padding:9px 4px;
+  display:grid;
+  place-items:center;
+  gap:3px;
+}
+.program-week span {
+  width:28px;
+  height:28px;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  font-weight:900;
+  background:#0f1216;
+}
+.program-week small { font-size:9px; }
+.program-week.checked {
+  color:var(--accent);
+  border-color:rgba(181,243,74,.4);
+  background:rgba(181,243,74,.07);
+}
+.program-week.checked span {
+  background:var(--accent);
+  color:#0b0d10;
+}
+.program-workout-selector {
+  display:grid;
+  gap:8px;
+}
+.program-workout-option {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:12px;
+  border-radius:14px;
+  background:#0f1216;
+  border:1px solid var(--line);
+}
+.program-workout-option input { width:auto; }
+.program-workout-option span { display:grid; gap:3px; }
+.program-workout-option small { color:var(--muted); }
+.program-complete-message {
+  margin-top:12px;
+  padding:11px 12px;
+  text-align:center;
+  border-radius:14px;
+  background:rgba(181,243,74,.10);
+  color:var(--accent);
+  font-weight:800;
+}
+.program-done-pill {
+  background:rgba(181,243,74,.15);
+}
+@media (min-width:420px) {
+  .program-weeks { grid-template-columns:repeat(5,minmax(0,1fr)); }
+}
