@@ -78,6 +78,7 @@ main { padding: 8px 16px 24px; }
 .section-title h2 { font-size:17px; margin:0; }
 .week { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
 .day {
+  display:block; width:100%; color:inherit; font:inherit; cursor:pointer;
   text-align:center; padding:10px 2px; border-radius:14px; background:var(--panel-2); border:1px solid var(--line);
 }
 .day small { display:block; color:var(--muted); margin-bottom:6px; }

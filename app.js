@@ -31,6 +31,7 @@ const defaultData = {
 let state = load();
 let currentView = "home";
 let deferredPrompt = null;
+let selectedHomeDate = localISODate();
 
 function load(){
   try {
@@ -110,7 +111,21 @@ function load(){
 }
 function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 function fmtDate(d){ return new Intl.DateTimeFormat("pt-BR",{day:"2-digit",month:"short",year:"numeric"}).format(new Date(d)); }
-function todayISO(){ return new Date().toISOString().slice(0,10); }
+function localISODate(date=new Date()){
+  const y=date.getFullYear(), m=String(date.getMonth()+1).padStart(2,"0"), d=String(date.getDate()).padStart(2,"0");
+  return `${y}-${m}-${d}`;
+}
+function todayISO(){ return localISODate(); }
+function shiftISODate(iso,days){
+  const [y,m,d]=iso.split("-").map(Number);
+  const date=new Date(y,m-1,d,12);
+  date.setDate(date.getDate()+days);
+  return localISODate(date);
+}
+function weekdayForISO(iso){
+  const [y,m,d]=iso.split("-").map(Number);
+  return ["Dom","Seg","Ter","Qua","Qui","Sex","Sab"][new Date(y,m-1,d,12).getDay()];
+}
 function toast(msg){
   let el = $(".toast");
   if(!el){ el=document.createElement("div"); el.className="toast"; document.body.appendChild(el); }
@@ -208,88 +223,86 @@ async function shareWorkout(workout){
 }
 
 function renderHome(app){
-  const lastBody=[...state.body].sort((a,b)=>b.date.localeCompare(a.date))[0];
-  const month=new Date().toISOString().slice(0,7);
+  const selectedDate=selectedHomeDate || todayISO();
+  const lastBody=state.body.reduce((best,item)=>!best || item.date>best.date ? item : best,null);
+  const month=selectedDate.slice(0,7);
   const monthSessions=state.sessions.filter(s=>s.date.startsWith(month));
-  const todayName=["Dom","Seg","Ter","Qua","Qui","Sex","Sab"][new Date().getDay()];
-  const plannedToday=state.workouts.filter(w=>Array.isArray(w.days) && w.days.includes(todayName));
+  const selectedName=weekdayForISO(selectedDate);
+  const isToday=selectedDate===todayISO();
+  const planned=state.workouts.filter(w=>Array.isArray(w.days) && w.days.includes(selectedName));
+  const completedIds=new Set(state.sessions.filter(s=>s.date===selectedDate).map(s=>s.workoutId));
 
-  const {start:weekStart,end:weekEnd}=getWeekBounds();
+  const {start:weekStart}=getWeekBounds();
   const weekDays=["Seg","Ter","Qua","Qui","Sex","Sab","Dom"];
-
   const weekHtml=weekDays.map((d,index)=>{
-    const date=new Date(weekStart);
-    date.setDate(weekStart.getDate()+index);
-    const iso=date.toISOString().slice(0,10);
-
+    const iso=shiftISODate(localISODate(weekStart),index);
     const plannedCount=state.workouts.filter(w=>Array.isArray(w.days)&&w.days.includes(d)).length;
     const completedCount=state.sessions.filter(s=>s.date===iso).length;
-    const isToday=iso===todayISO();
-
-    let symbol="•";
-    if(completedCount>0) symbol="✓";
-    else if(plannedCount>0) symbol=plannedCount>1?String(plannedCount):"○";
-
-    return `<div class="day ${completedCount>0?"done":""} ${isToday?"today":""}">
-      <small>${d}</small>
-      <b>${symbol}</b>
+    const active=iso===selectedDate;
+    let symbol=completedCount>0?"✓":plannedCount>0?(plannedCount>1?String(plannedCount):"○"):"•";
+    return `<button type="button" class="day ${completedCount>0?"done":""} ${active?"today":""}" data-select-day="${iso}" aria-label="Selecionar ${d}, ${iso}">
+      <small>${d}</small><b>${symbol}</b>
       ${plannedCount>0?`<div class="meta" style="font-size:9px;margin-top:4px">${plannedCount} treino${plannedCount>1?"s":""}</div>`:""}
-    </div>`;
+    </button>`;
   }).join("");
 
-  const todayCards = plannedToday.length
-    ? plannedToday.map((w,i)=>`
-        <section class="card hero">
-          <div class="row">
-            <div>
-              <span class="pill">${plannedToday.length>1?`Treino ${i+1} de ${plannedToday.length}`:"Treino de hoje"}</span>
-              <h2 style="font-size:26px;margin:12px 0 6px">${escapeHtml(w.name)}</h2>
-              <p class="muted">${w.exercises.length} exercícios · ${todayName}</p>
-            </div>
-          </div>
-          <div class="stack">
-            <button class="primary" data-start-workout="${w.id}">INICIAR TREINO</button>
-            <button class="secondary" data-share-workout="${w.id}">↗ COMPARTILHAR TREINO</button>
-          </div>
-        </section>
-      `).join("")
-    : `
-      <section class="card hero">
-        <span class="pill" style="color:var(--warning);background:rgba(255,209,102,.1)">Sem treino hoje</span>
-        <h2 style="font-size:26px;margin:12px 0 6px">Nenhum treino agendado</h2>
-        <p class="muted">Hoje é ${todayName}. Você pode editar suas fichas e definir este dia da semana.</p>
-        <button class="secondary" id="goWorkouts">VER TREINOS</button>
-      </section>
-    `;
+  const cards=planned.length ? planned.map((w,i)=>{
+    const completed=completedIds.has(w.id);
+    return `<section class="card hero">
+      <div class="row"><div>
+        <span class="pill">${completed?"Treino concluído":(planned.length>1?`Treino ${i+1} de ${planned.length}`:(isToday?"Treino de hoje":"Treino planejado"))}</span>
+        <h2 style="font-size:26px;margin:12px 0 6px">${escapeHtml(w.name)}</h2>
+        <p class="muted">${w.exercises.length} exercícios · ${selectedName} · ${fmtDate(selectedDate+"T12:00:00")}</p>
+      </div></div>
+      <div class="stack">
+        ${completed?`<p class="accent">✓ Já existe um registro deste treino nesta data.</p>`:`<button class="primary" data-start-workout="${w.id}" data-session-date="${selectedDate}">${isToday?"INICIAR TREINO":"REGISTRAR TREINO DESTE DIA"}</button>`}
+        <button class="secondary" data-share-workout="${w.id}">↗ COMPARTILHAR TREINO</button>
+      </div>
+    </section>`;
+  }).join("") : `<section class="card hero">
+    <span class="pill" style="color:var(--warning);background:rgba(255,209,102,.1)">Sem treino planejado</span>
+    <h2 style="font-size:26px;margin:12px 0 6px">${isToday?"Nenhum treino hoje":"Nenhum treino neste dia"}</h2>
+    <p class="muted">${selectedName}, ${fmtDate(selectedDate+"T12:00:00")}. Você pode escolher outro dia ou editar suas fichas.</p>
+    <button class="secondary" id="goWorkouts">VER TREINOS</button>
+  </section>`;
 
   app.innerHTML=`
-    ${todayCards}
-
+    <section class="card">
+      <div class="section-title" style="margin-top:0"><h2>Consultar dia</h2><span class="pill">${isToday?"Hoje": "Data selecionada"}</span></div>
+      <div class="row" style="gap:8px">
+        <button type="button" class="small-btn" id="previousDay" aria-label="Dia anterior">‹</button>
+        <input type="date" id="homeDatePicker" value="${selectedDate}" style="flex:1;min-width:0">
+        <button type="button" class="small-btn" id="nextDay" aria-label="Próximo dia" ${selectedDate>=todayISO()?"disabled":""}>›</button>
+      </div>
+      ${selectedDate!==todayISO()?`<button type="button" class="secondary" id="backToday" style="margin-top:10px">VOLTAR PARA HOJE</button>`:""}
+    </section>
+    ${cards}
     <div class="section-title"><h2>Esta semana</h2></div>
     <section class="card"><div class="week">${weekHtml}</div></section>
-
     <div class="grid-2">
       <div class="stat"><span class="muted">Treinos no mês</span><strong>${monthSessions.length}</strong></div>
       <div class="stat"><span class="muted">Peso atual</span><strong>${lastBody?.weight ? lastBody.weight+" kg" : "—"}</strong></div>
     </div>
-
     <div class="section-title"><h2>Últimos treinos</h2></div>
     <section class="card">
-      ${state.sessions.length ? [...state.sessions].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4).map(s=>`
-        <div class="list-item"><div><b>${escapeHtml(s.workoutName)}</b><div class="meta">${fmtDate(s.date)} · ${s.exercises.length} exercícios</div></div><span class="accent">✓</span></div>
+      ${state.sessions.length ? [...state.sessions].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4).map(session=>`
+        <div class="list-item"><div><b>${escapeHtml(session.workoutName)}</b><div class="meta">${fmtDate(session.date+"T12:00:00")} · ${session.exercises.length} exercícios</div></div><span class="accent">✓</span></div>
       `).join("") : $("#emptyTemplate").innerHTML}
-    </section>
-  `;
+    </section>`;
 
-  $$("[data-start-workout]").forEach(b=>b.onclick=()=>openSession(b.dataset.startWorkout));
+  $("#previousDay").onclick=()=>{selectedHomeDate=shiftISODate(selectedDate,-1);render();};
+  $("#nextDay").onclick=()=>{if(selectedDate<todayISO()){selectedHomeDate=shiftISODate(selectedDate,1);render();}};
+  $("#homeDatePicker").onchange=e=>{if(e.target.value && e.target.value<=todayISO()){selectedHomeDate=e.target.value;render();}else toast("Escolha uma data até hoje.");};
+  $("#backToday")?.addEventListener("click",()=>{selectedHomeDate=todayISO();render();});
+  $$("[data-select-day]").forEach(b=>b.onclick=()=>{selectedHomeDate=b.dataset.selectDay;render();});
+  $$("[data-start-workout]").forEach(b=>b.onclick=()=>openSession(b.dataset.startWorkout,b.dataset.sessionDate));
   $$("[data-share-workout]").forEach(b=>b.onclick=()=>{
     const workout=state.workouts.find(w=>w.id===b.dataset.shareWorkout);
     if(workout) shareWorkout(workout);
   });
   const go=$("#goWorkouts");
-  if(go) go.onclick=()=>{ currentView="workouts"; render(); };
+  if(go) go.onclick=()=>{currentView="workouts";render();};
 }
-
 
 function renderExerciseLibrary(app){
   const renderList=(filter="")=>{
@@ -1189,12 +1202,13 @@ function startRestTimer(seconds=90){
   draw();
   restTimerInterval=setInterval(draw,1000);
 }
-function stopRestTimer(){
+function stopRestTimer(resetTo=90){
   clearInterval(restTimerInterval);
-  const el=$("#restTime"); if(el) el.textContent="01:30";
+  const el=$("#restTime");
+  if(el) el.textContent=`${String(Math.floor(resetTo/60)).padStart(2,"0")}:${String(resetTo%60).padStart(2,"0")}`;
 }
 
-function createSessionDraft(workout){
+function createSessionDraft(workout,sessionDate=todayISO()){
   const previous=[...state.sessions].reverse().find(s=>s.workoutId===workout.id);
   return {
     id:crypto.randomUUID(),
@@ -1237,13 +1251,18 @@ function persistActiveSessionFromUI(){
   save();
 }
 
-function openSession(workoutId){
+function openSession(workoutId,sessionDate=todayISO()){
   const workout=state.workouts.find(w=>w.id===workoutId);
   if(!workout) return;
 
-  // Resume same unfinished workout; otherwise create a new draft.
-  if(!state.activeSession || state.activeSession.workoutId!==workoutId){
-    state.activeSession=createSessionDraft(workout);
+  // Keep an unfinished workout from being silently overwritten when changing dates.
+  const needsNewDraft=!state.activeSession || state.activeSession.workoutId!==workoutId || state.activeSession.date!==sessionDate;
+  if(needsNewDraft){
+    if(state.activeSession){
+      const hasProgress=(state.activeSession.exercises||[]).some(ex=>(ex.sets||[]).some(set=>set.done || +set.weight>0 || +set.reps>0));
+      if(hasProgress && !confirm("Existe um treino em andamento. Ao iniciar este treino, o rascunho atual será substituído. Deseja continuar?")) return;
+    }
+    state.activeSession=createSessionDraft(workout,sessionDate);
     save();
   }
 
@@ -1305,12 +1324,13 @@ function openSession(workoutId){
           <div class="meta">DESCANSO</div>
           <strong id="restTime" style="font-size:34px;letter-spacing:.04em">01:30</strong>
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="small-btn" type="button" id="minusTimer">−15s</button>
-          <button class="small-btn" type="button" id="plusTimer">+15s</button>
-        </div>
+        <div class="pill">Personalizável</div>
       </div>
-      <div class="grid-2" style="margin-top:12px">
+      <div class="inline-fields" style="margin-top:12px">
+        <div class="form-group"><label for="timerMinutes">Minutos</label><input id="timerMinutes" type="number" min="0" max="99" value="1" inputmode="numeric"></div>
+        <div class="form-group"><label for="timerSeconds">Segundos</label><input id="timerSeconds" type="number" min="0" max="59" value="30" inputmode="numeric"></div>
+      </div>
+      <div class="grid-2" style="margin-top:8px">
         <button class="secondary" type="button" id="startTimer">Iniciar 01:30</button>
         <button class="secondary" type="button" id="stopTimer">Parar</button>
       </div>
@@ -1323,17 +1343,28 @@ function openSession(workoutId){
     `);
 
   let timerSeconds=90;
-  const refreshTimerLabel=()=>{
-    const m=String(Math.floor(timerSeconds/60)).padStart(2,"0");
-    const s=String(timerSeconds%60).padStart(2,"0");
-    $("#restTime").textContent=`${m}:${s}`;
-    $("#startTimer").textContent=`Iniciar ${m}:${s}`;
+  const readTimerInputs=()=>{
+    const minutes=Math.max(0,Math.min(99,parseInt($("#timerMinutes").value,10)||0));
+    const seconds=Math.max(0,Math.min(59,parseInt($("#timerSeconds").value,10)||0));
+    $("#timerMinutes").value=minutes;
+    $("#timerSeconds").value=seconds;
+    return minutes*60+seconds;
   };
-
-  $("#minusTimer").onclick=()=>{timerSeconds=Math.max(15,timerSeconds-15);stopRestTimer();refreshTimerLabel();};
-  $("#plusTimer").onclick=()=>{timerSeconds=Math.min(600,timerSeconds+15);stopRestTimer();refreshTimerLabel();};
-  $("#startTimer").onclick=()=>startRestTimer(timerSeconds);
-  $("#stopTimer").onclick=()=>{stopRestTimer();refreshTimerLabel();};
+  const refreshTimerLabel=()=>{
+    timerSeconds=readTimerInputs();
+    const m=String(Math.floor(timerSeconds/60)).padStart(2,"0");
+    const sec=String(timerSeconds%60).padStart(2,"0");
+    $("#restTime").textContent=`${m}:${sec}`;
+    $("#startTimer").textContent=`Iniciar ${m}:${sec}`;
+  };
+  $("#timerMinutes").onchange=refreshTimerLabel;
+  $("#timerSeconds").onchange=refreshTimerLabel;
+  $("#startTimer").onclick=()=>{
+    refreshTimerLabel();
+    if(timerSeconds<=0) return toast("Informe um tempo maior que zero.");
+    startRestTimer(timerSeconds);
+  };
+  $("#stopTimer").onclick=()=>{stopRestTimer(timerSeconds);refreshTimerLabel();};
 
   $$(".set-weight, .set-reps").forEach(inp=>{
     inp.addEventListener("input",persistActiveSessionFromUI);
@@ -1362,7 +1393,8 @@ function openSession(workoutId){
       }
 
       showPRCelebration(result.status,exerciseName,weight,reps);
-      startRestTimer(timerSeconds);
+      timerSeconds=readTimerInputs();
+      if(timerSeconds>0) startRestTimer(timerSeconds);
     }
 
     persistActiveSessionFromUI();
@@ -1388,7 +1420,7 @@ function openSession(workoutId){
     persistActiveSessionFromUI();
     const finished=structuredClone(state.activeSession);
     finished.id=crypto.randomUUID();
-    finished.date=todayISO();
+    finished.date=state.activeSession.date || todayISO();
     state.sessions.push(finished);
     state.activeSession=null;
     save();
